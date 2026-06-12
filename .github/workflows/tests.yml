@@ -1,0 +1,58 @@
+name: BDD Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run BDD tests
+        run: npm test
+
+      - name: AI failure analysis
+        if: failure()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "### AI analizi atlandi" >> "$GITHUB_STEP_SUMMARY"
+            echo "ANTHROPIC_API_KEY secret'i tanimli degil (Settings > Secrets and variables > Actions)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npm run ai:analyze || true
+          if [ -f reports/ai-analysis.md ]; then
+            cat reports/ai-analysis.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            reports/playwright-report
+            reports/cucumber-report.html
+            reports/cucumber-report.json
+            reports/ai-analysis.md
+          retention-days: 14
+          if-no-files-found: ignore
