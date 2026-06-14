@@ -1,11 +1,12 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { LoginSelectors as S } from './selectors/login.selectors';
 
 export class LoginPage extends BasePage {
-  readonly usernameInput = this.page.locator('#user-name');
-  readonly passwordInput = this.page.locator('#password');
-  readonly loginButton = this.page.locator('#login-button');
-  readonly errorMessage = this.page.locator('[data-test="error"]');
+  readonly usernameInput = this.page.locator(S.username);
+  readonly passwordInput = this.page.locator(S.password);
+  readonly loginButton = this.page.locator(S.loginButton);
+  readonly errorMessage = this.page.locator(S.error);
 
   constructor(page: Page) {
     super(page);
