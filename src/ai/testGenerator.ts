@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getClient, MODEL } from './client';
 import { GENERATOR_SYSTEM } from './prompts';
+import { redact } from './redact';
+import { registerAllSensitive } from '../fixtures/data';
 
 export interface GeneratedArtifacts {
   featureFileName: string;
@@ -50,6 +52,10 @@ const OUTPUT_SCHEMA = {
 export async function generateTests(userStory: string): Promise<GeneratedArtifacts> {
   const client = getClient();
 
+  // LLM'e gitmeden once: bilinen gizli degerleri yukle + story'yi maskele.
+  registerAllSensitive();
+  const safeStory = redact(userStory);
+
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 64000,
@@ -61,7 +67,7 @@ export async function generateTests(userStory: string): Promise<GeneratedArtifac
     messages: [
       {
         role: 'user',
-        content: `Generate the BDD test artifacts for this user story:\n\n${userStory}`
+        content: `Generate the BDD test artifacts for this user story:\n\n${safeStory}`
       }
     ]
   });

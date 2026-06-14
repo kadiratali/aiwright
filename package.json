@@ -11,7 +11,8 @@
     "report": "playwright show-report reports/playwright-report",
     "ai:generate": "ts-node src/cli/index.ts generate",
     "ai:analyze": "ts-node src/cli/index.ts analyze",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:redaction": "ts-node scripts/redact-check.ts"
   },
   "engines": {
     "node": ">=20"

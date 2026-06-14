@@ -5,3 +5,9 @@ reports/
 .env
 .idea/
 .DS_Store
+
+# Hassas test verisi - gercek PII repoya GIRMEZ.
+# Sadece *.example.json ve README izinli.
+fixtures/sensitive/*
+!fixtures/sensitive/*.example.json
+!fixtures/sensitive/README.md

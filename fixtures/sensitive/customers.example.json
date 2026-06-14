@@ -1,0 +1,10 @@
+{
+  "_comment": "SABLON. Gercek dosya: customers.json (gitignore'da, repoya girmez). Buraya gercek PII YAZMAYIN.",
+  "valid_customer": {
+    "name": "TEST_NAME",
+    "tckn": "00000000000",
+    "phone": "05000000000",
+    "iban": "TR000000000000000000000000",
+    "card": "0000000000000000"
+  }
+}

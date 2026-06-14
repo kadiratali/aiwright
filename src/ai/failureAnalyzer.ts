@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getClient, MODEL } from './client';
 import { ANALYZER_SYSTEM } from './prompts';
+import { redactDeep } from './redact';
+import { registerAllSensitive } from '../fixtures/data';
 
 interface FailureRecord {
   feature: string;
@@ -69,6 +71,12 @@ export async function analyzeFailures(
 ): Promise<{ analyses: FailureAnalysis[]; summary: string }> {
   const client = getClient();
 
+  // LLM'e gitmeden once: gizli degerleri yukle + hata verisini (senaryo adi,
+  // step metni, HATA MESAJI) maskele. Playwright hata mesajlari beklenen/gelen
+  // degerleri icerebilir; en buyuk sizinti vektoru burasidir.
+  registerAllSensitive();
+  const safeFailures = redactDeep(failures);
+
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 32000,
@@ -80,7 +88,7 @@ export async function analyzeFailures(
     messages: [
       {
         role: 'user',
-        content: `Analyze these failed scenarios:\n\n${JSON.stringify(failures, null, 2)}`
+        content: `Analyze these failed scenarios:\n\n${JSON.stringify(safeFailures, null, 2)}`
       }
     ]
   });

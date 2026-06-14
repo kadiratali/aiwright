@@ -75,6 +75,18 @@ src/
 .features-gen/         bddgen'in urettigi spec'ler (git'e girmez)
 ```
 
+## Hassas Veri Güvenliği (PII)
+
+TCKN, kredi kartı, IBAN gibi hassas veriler **hiçbir zaman LLM'e gitmez** ve bu dosyalar LLM tarafından okunamaz. Üç katmanlı koruma:
+
+1. **İzolasyon** — Gerçek PII `fixtures/sensitive/` altında durur, `.gitignore` ile repoya girmez (yalnızca `*.example.json` şablonları commit'lenir).
+2. **Read-deny** — `.claude/settings.json` içindeki `permissions.deny`, Claude Code'un (kod ajanının) `fixtures/sensitive/**` ve `.env` dosyalarını okumasını engeller. *(Kural yeni oturumda etkinleşir.)*
+3. **Maskeleme** — `ai:generate` ve `ai:analyze`, Claude API'ye veri yollamadan önce `src/ai/redact.ts` ile maskeler:
+   - **Desen tabanlı**: TCKN (11 hane), kart, IBAN, e-posta, telefon
+   - **Değer tabanlı (denylist)**: `loadSensitive()` ile okunan / `fixtures/sensitive/` altındaki tüm gerçek değerler, formata uymasa bile (isim, gizli kod vb.) birebir maskelenir
+
+Maskelemenin regresyon kontrolü: `npm run verify:redaction`. Detaylı politika: `fixtures/sensitive/README.md`.
+
 ### Konvansiyonlar
 
 - **Step'ler fixture kullanır**: `async ({ loginPage }, param) => ...` — `new LoginPage(page)` yazılmaz.
