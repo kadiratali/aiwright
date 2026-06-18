@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getClient, MODEL } from './client';
-import { GENERATOR_SYSTEM } from './prompts';
+import { GENERATOR_SYSTEM, DESIGN_SCOPED_INSTRUCTION, SELECTORS_INSTRUCTION } from './prompts';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
 
@@ -49,12 +49,27 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false
 } as const;
 
-export async function generateTests(userStory: string): Promise<GeneratedArtifacts> {
+export async function generateTests(
+  userStory: string,
+  approvedDesign?: string,
+  selectorMapJson?: string
+): Promise<GeneratedArtifacts> {
   const client = getClient();
 
-  // LLM'e gitmeden once: bilinen gizli degerleri yukle + story'yi maskele.
+  // Before going to the LLM: load known secret values + redact the story (and the
+  // human-edited design / selector map, if any).
   registerAllSensitive();
   const safeStory = redact(userStory);
+
+  let content = `Generate the BDD test artifacts for this user story:\n\n${safeStory}`;
+  if (approvedDesign?.trim()) {
+    const safeDesign = redact(approvedDesign);
+    content += `\n\n${DESIGN_SCOPED_INSTRUCTION}\n\nAPPROVED TEST DESIGN:\n\n${safeDesign}`;
+  }
+  if (selectorMapJson?.trim()) {
+    const safeMap = redact(selectorMapJson);
+    content += `\n\n${SELECTORS_INSTRUCTION}\n\nSELECTOR MAP:\n\n${safeMap}`;
+  }
 
   const stream = client.messages.stream({
     model: MODEL,
@@ -67,7 +82,7 @@ export async function generateTests(userStory: string): Promise<GeneratedArtifac
     messages: [
       {
         role: 'user',
-        content: `Generate the BDD test artifacts for this user story:\n\n${safeStory}`
+        content
       }
     ]
   });
@@ -77,12 +92,12 @@ export async function generateTests(userStory: string): Promise<GeneratedArtifac
   process.stdout.write('\n');
 
   if (message.stop_reason === 'refusal') {
-    throw new Error('Model istegi reddetti (stop_reason: refusal).');
+    throw new Error('The model refused the request (stop_reason: refusal).');
   }
 
   const textBlock = message.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Modelden metin yaniti alinamadi.');
+    throw new Error('No text response received from the model.');
   }
   return JSON.parse(textBlock.text) as GeneratedArtifacts;
 }
@@ -91,13 +106,13 @@ export function writeArtifacts(artifacts: GeneratedArtifacts, rootDir = process.
   const written: string[] = [];
 
   const write = (dir: string, fileName: string, content: string) => {
-    // Model ciktisindaki olasi dizin parcalarini at, sadece dosya adini kullan
+    // Drop any directory parts the model may emit; keep only the file name
     const target = path.join(rootDir, dir, path.basename(fileName));
     fs.mkdirSync(path.dirname(target), { recursive: true });
     if (fs.existsSync(target)) {
       const backup = `${target}.generated`;
       fs.writeFileSync(backup, content);
-      written.push(`${backup} (mevcut dosyanin uzerine yazilmadi)`);
+      written.push(`${backup} (existing file was not overwritten)`);
       return;
     }
     fs.writeFileSync(target, content);

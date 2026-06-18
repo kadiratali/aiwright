@@ -1,105 +1,177 @@
 # aiwright — AI QA Agent
 
-TypeScript + **playwright-bdd** (Gherkin → Playwright Test runner) tabanlı, Claude destekli BDD test otomasyon framework'ü.
+A Claude-powered BDD test automation framework built on TypeScript + **playwright-bdd**
+(Gherkin → Playwright Test runner).
 
 ```
-User Story ──▶ AI Test Generator ──▶ .feature + steps + page objects
+User Story ──▶ AI Test Designer ──▶ test-design.md  ("what to test")
+                                          │   ← human reviews / edits / decides scope
+Live page  ──▶ AI Page Inspector ──▶ selector-map.json  (real DOM, verified selectors)
+                                          │
+                                          ▼
+               AI Test Generator ──▶ .feature + steps + page objects
+              (scope from design, selectors from the inspected map — no guessing)
                                           │
                                           ▼
                          bddgen ──▶ Playwright Test runner
-                   (fixtures, paralel koşum, trace, screenshot)
+                   (fixtures, parallel runs, trace, screenshot)
                                           │
                                           ▼
-              HTML/JSON rapor ──▶ AI Failure Analyzer ──▶ ai-analysis.md
+              Cucumber HTML/JSON report ──▶ AI Failure Analyzer ──▶ ai-analysis.md
 ```
 
-## Kurulum
+## Setup
 
 ```bash
 npm install
 npx playwright install chromium
-cp .env.example .env   # ANTHROPIC_API_KEY degerini doldurun
+cp .env.example .env   # fill in ANTHROPIC_API_KEY
 ```
 
-## Kullanım
+## Usage
 
-### Testleri çalıştır
+### Run the tests
 
 ```bash
-npm test                  # tum senaryolar (paralel)
-npm run test:smoke        # sadece @smoke etiketliler
-npm run test:ui           # Playwright UI modunda
-HEADLESS=false npm test   # tarayiciyi gorerek
-npm run report            # Playwright HTML raporunu ac
+npm test                  # all scenarios (parallel)
+npm run test:smoke        # only @smoke tagged
+npm run test:ui           # Playwright UI mode
+HEADLESS=false npm test   # watch the browser
+npm run report            # open the Cucumber HTML report
 ```
 
-Raporlar `reports/` altına yazılır: Playwright HTML raporu, Cucumber HTML/JSON raporu. Başarısız senaryolarda screenshot ve trace otomatik toplanır (`reports/test-results/`).
+Reports are written under `reports/`: the Cucumber HTML/JSON report. Screenshots and traces
+are collected automatically for failed scenarios (`reports/test-results/`).
 
-### AI ile test üret
+### AI test design ("what to test")
 
-User story'den feature dosyası, step definition ve gereken page object'leri üretir:
+Before `ai:generate` jumps to code, this produces a **test design** for a human to review
+from a user story: risk areas, prioritised scenario ideas, open questions (ambiguous
+requirements), assumptions, and deliberate **out-of-scope** decisions. It generates no
+code — it is the "**what**" layer, not the "how".
+
+```bash
+npm run ai:design -- stories/checkout.txt
+```
+
+Output: `reports/test-design-<slug>.md`. Flow: review/edit the design → run `ai:generate`
+with the scenarios you approved.
+
+### AI selector inspection (real DOM, no guessing)
+
+So the generator uses **real** selectors instead of guessing, this opens the live page and
+extracts a stability-ranked selector map from the DOM: `data-test` > stable id >
+role + accessible name > static text. It verifies each selector is unique, scopes ambiguous
+ones to a stable ancestor, and collapses repeated list rows to one representative to
+parametrize. With `--login` it signs in first via the project's `LoginPage`.
+
+```bash
+npm run ai:inspect -- /                        # a public page (login)
+npm run ai:inspect -- /inventory.html --login standard   # behind authentication
+```
+
+Output: `reports/selector-map-<slug>.json`. Accepts a full URL or a path resolved against
+`BASE_URL`, so it works against any site (the only site-specific part is `LoginPage`, used
+only for `--login`). Page text is PII-redacted before it is written.
+
+### AI test generation
+
+Generates the feature file, step definitions, and the page objects needed from a user story:
 
 ```bash
 npm run ai:generate -- stories/checkout.txt
-# veya dogrudan metin:
+# or pass text directly:
 npm run ai:generate -- "As a user I want to add products to the cart so that..."
 ```
 
-Mevcut bir dosyanın üzerine asla yazmaz — çakışma olursa `.generated` uzantısıyla yan dosya oluşturur. Yeni page object üretildiyse fixture kayıt snippet'i çıktıdaki notlarda verilir.
+**Generate from an approved design (recommended flow):** with `--design`, you pass the
+design file you reviewed/edited. The generator produces only the scenarios in that design —
+it does not invent new ones and does not generate the ones you removed (your deliberate
+scope decision):
 
-### AI ile hata analizi
+```bash
+npm run ai:generate -- stories/checkout.txt --design reports/test-design-checkout.md
+```
 
-Test koşumundan sonra başarısız senaryoları analiz eder, her birini `app-bug | test-bug | flaky | environment` olarak sınıflandırır ve çözüm önerir:
+**Ground selectors in the real DOM:** add `--selectors` with an `ai:inspect` map and the
+generator uses those verified selectors verbatim instead of guessing or emitting
+placeholders. `--design` and `--selectors` combine:
+
+```bash
+npm run ai:generate -- stories/checkout.txt \
+  --design reports/test-design-checkout.md \
+  --selectors reports/selector-map-checkout.json
+```
+
+It never overwrites an existing file — on a conflict it writes a side file with a
+`.generated` extension. When a new page object is generated, the fixture-registration
+snippet is included in the output notes.
+
+### AI failure analysis
+
+After a test run, analyzes the failed scenarios, classifies each as
+`app-bug | test-bug | flaky | environment`, and suggests a fix:
 
 ```bash
 npm test
 npm run ai:analyze
 ```
 
-Detaylı rapor: `reports/ai-analysis.md`
+Detailed report: `reports/ai-analysis.md`
 
-## Proje Yapısı
+## Project Structure
 
 ```
-playwright.config.ts   defineBddConfig + reporter + use ayarlari
-features/              Gherkin feature dosyalari
-fixtures/              Test verisi (users.json, ...)
+playwright.config.ts   defineBddConfig + reporter + use settings
+features/              Gherkin feature files
+fixtures/              Test data (users.json, ...)
 src/
-  fixtures/            Playwright fixture'lari (page objects) + veri yardimcilari
+  fixtures/            Playwright fixtures (page objects) + data helpers
     index.ts           test = base.extend({ loginPage, productsPage, ... })
     data.ts            loadFixture / getUser
-  steps/               Step definition'lar (createBdd ile fixture-tabanli)
-  pages/               Page Object Model (BasePage'den turer)
-  ai/                  Claude entegrasyonu (uretici + analizci + promptlar)
-  cli/                 ai:generate / ai:analyze komutlari
-.features-gen/         bddgen'in urettigi spec'ler (git'e girmez)
+  steps/               Step definitions (fixture-based, via createBdd)
+  pages/               Page Object Model (extends BasePage)
+  ai/                  Claude integration (designer + inspector + generator + analyzer + prompts)
+  cli/                 ai:design / ai:inspect / ai:generate / ai:analyze commands
+.features-gen/         specs generated by bddgen (not committed)
 ```
 
-## Hassas Veri Güvenliği (PII)
+## Sensitive Data Protection (PII)
 
-TCKN, kredi kartı, IBAN gibi hassas veriler **hiçbir zaman LLM'e gitmez** ve bu dosyalar LLM tarafından okunamaz. Üç katmanlı koruma:
+Sensitive data such as national IDs, credit cards, and IBANs **never reaches the LLM**, and
+these files cannot be read by the LLM. Three layers of protection:
 
-1. **İzolasyon** — Gerçek PII `fixtures/sensitive/` altında durur, `.gitignore` ile repoya girmez (yalnızca `*.example.json` şablonları commit'lenir).
-2. **Read-deny** — `.claude/settings.json` içindeki `permissions.deny`, Claude Code'un (kod ajanının) `fixtures/sensitive/**` ve `.env` dosyalarını okumasını engeller. *(Kural yeni oturumda etkinleşir.)*
-3. **Maskeleme** — `ai:generate` ve `ai:analyze`, Claude API'ye veri yollamadan önce `src/ai/redact.ts` ile maskeler:
-   - **Desen tabanlı**: TCKN (11 hane), kart, IBAN, e-posta, telefon
-   - **Değer tabanlı (denylist)**: `loadSensitive()` ile okunan / `fixtures/sensitive/` altındaki tüm gerçek değerler, formata uymasa bile (isim, gizli kod vb.) birebir maskelenir
+1. **Isolation** — Real PII lives under `fixtures/sensitive/` and is kept out of the repo via
+   `.gitignore` (only `*.example.json` templates are committed).
+2. **Read-deny** — `permissions.deny` in `.claude/settings.json` prevents Claude Code (the
+   coding agent) from reading `fixtures/sensitive/**` and `.env`. *(The rule takes effect in
+   a new session.)*
+3. **Redaction** — `ai:generate` and `ai:analyze` redact via `src/ai/redact.ts` before
+   sending anything to the Claude API:
+   - **Pattern-based**: national ID (11 digits), card, IBAN, email, phone
+   - **Value-based (denylist)**: all real values read via `loadSensitive()` / under
+     `fixtures/sensitive/` are masked verbatim even when they don't match a format (names,
+     secret codes, etc.)
 
-Maskelemenin regresyon kontrolü: `npm run verify:redaction`. Detaylı politika: `fixtures/sensitive/README.md`.
+Redaction regression check: `npm run verify:redaction`. Detailed policy:
+`fixtures/sensitive/README.md`.
 
-### Konvansiyonlar
+### Conventions
 
-- **Step'ler fixture kullanır**: `async ({ loginPage }, param) => ...` — `new LoginPage(page)` yazılmaz.
-- **Test verisi fixtures/*.json'da**: step içinde hardcoded kimlik bilgisi yok; `getUser('standard')`.
-- **Selector önceliği**: `data-test`/`data-testid` > id > role. Kırılgan CSS zincirleri yasak.
-- **Senaryolar bağımsız**: ortak kurulum `Background`'a, senaryolar arası state paylaşımı yok.
+- **Steps use fixtures**: `async ({ loginPage }, param) => ...` — never write `new LoginPage(page)`.
+- **Test data lives in fixtures/*.json**: no hardcoded credentials in steps; use `getUser('standard')`.
+- **Selector priority**: `data-test`/`data-testid` > id > role. No brittle CSS chains.
+- **Scenarios are independent**: shared setup goes in `Background`, no state shared between scenarios.
 
-## Yol Haritası (mimari diyagramına göre)
+## Roadmap (per the architecture diagram)
 
-- [x] playwright-bdd çekirdeği (fixtures, POM, paralel koşum, raporlama)
-- [x] LLM katmanı: user story → test üretimi (Claude API, structured outputs)
-- [x] LLM katmanı: hata/risk analizi
-- [ ] Jira entegrasyonu (user story çekme, sonuçları issue'ya yazma)
-- [ ] MCP server (araçlara güvenli erişim katmanı)
-- [x] CI/CD entegrasyonu (GitHub Actions: test + AI analiz + artifact)
-- [ ] TestRail / Slack bildirimleri
+- [x] playwright-bdd core (fixtures, POM, parallel runs, reporting)
+- [x] LLM layer: user story → test design (risk/edge case/scope — "what to test")
+- [x] DOM layer: live page → verified selector map (stability-ranked, no guessing)
+- [x] LLM layer: user story → test generation (Claude API, structured outputs)
+- [x] LLM layer: failure/risk analysis
+- [ ] Jira integration (pull user stories, write results back to the issue)
+- [ ] MCP server (secure access layer for tools)
+- [x] CI/CD integration (GitHub Actions: test + AI analysis + artifact)
+- [ ] TestRail / Slack notifications
+```

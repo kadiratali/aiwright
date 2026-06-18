@@ -23,9 +23,6 @@ Then('the products page should be displayed', async ({ productsPage }) => {
   await expect(productsPage.inventoryList).toBeVisible();
 });
 
-Then(
-  'an error message containing {string} should be displayed',
-  async ({ loginPage }, text: string) => {
+Then('an error message containing {string} should be displayed', async ({ loginPage }, text: string) => {
     await expect(loginPage.errorMessage).toContainText(text);
-  }
-);
+});

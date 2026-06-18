@@ -10,7 +10,7 @@ let client: Anthropic | undefined;
 export function getClient(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error(
-      'ANTHROPIC_API_KEY tanimli degil. .env dosyasi olusturun (bkz. .env.example).'
+      'ANTHROPIC_API_KEY is not set. Create a .env file (see .env.example).'
     );
   }
   client ??= new Anthropic();
