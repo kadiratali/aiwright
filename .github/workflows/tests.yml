@@ -35,8 +35,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "### AI analizi atlandi" >> "$GITHUB_STEP_SUMMARY"
-            echo "ANTHROPIC_API_KEY secret'i tanimli degil (Settings > Secrets and variables > Actions)." >> "$GITHUB_STEP_SUMMARY"
+            echo "### AI analysis skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "ANTHROPIC_API_KEY secret is not set (Settings > Secrets and variables > Actions)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           npm run ai:analyze || true
@@ -50,7 +50,6 @@ jobs:
         with:
           name: test-reports
           path: |
-            reports/playwright-report
             reports/cucumber-report.html
             reports/cucumber-report.json
             reports/ai-analysis.md

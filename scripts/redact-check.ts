@@ -1,11 +1,11 @@
 /**
- * Maskeleme regresyon kontrolu (CI-guvenli, kendi kendine yeterli).
- * Gercek hassas dosyaya bagimli degildir; denylist'i acikca besler.
- * Calistir: npm run verify:redaction
+ * Redaction regression check (CI-safe, self-contained).
+ * Does not depend on a real sensitive file; it feeds the denylist explicitly.
+ * Run: npm run verify:redaction
  */
 import { redact, registerSecrets } from '../src/ai/redact';
 
-// Denylist'e desene UYMAYAN gizli degerler ekle (isim, kod gibi)
+// Add secret values that do NOT match a pattern to the denylist (e.g. name, code)
 registerSecrets(['Ahmet Yılmaz', 'ZQ9-XK42-PLM7']);
 
 const cases: { input: string; mustMask: string[]; mustKeep?: string[] }[] = [
@@ -24,17 +24,17 @@ for (const { input, mustMask, mustKeep } of cases) {
   const out = redact(input);
   for (const secret of mustMask) {
     if (out.includes(secret)) {
-      console.error(`SIZINTI: "${secret}" maskelenmedi -> ${out}`);
+      console.error(`LEAK: "${secret}" was not redacted -> ${out}`);
       failed = true;
     }
   }
   for (const keep of mustKeep ?? []) {
     if (!out.includes(keep)) {
-      console.error(`ASIRI MASKELEME: "${keep}" gereksiz maskelendi -> ${out}`);
+      console.error(`OVER-REDACTION: "${keep}" was redacted unnecessarily -> ${out}`);
       failed = true;
     }
   }
 }
 
-console.log(failed ? 'Maskeleme kontrolu: BASARISIZ ❌' : 'Maskeleme kontrolu: GECTI ✅');
+console.log(failed ? 'Redaction check: FAILED ❌' : 'Redaction check: PASSED ✅');
 process.exit(failed ? 1 : 0);

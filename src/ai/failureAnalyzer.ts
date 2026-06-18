@@ -71,9 +71,9 @@ export async function analyzeFailures(
 ): Promise<{ analyses: FailureAnalysis[]; summary: string }> {
   const client = getClient();
 
-  // LLM'e gitmeden once: gizli degerleri yukle + hata verisini (senaryo adi,
-  // step metni, HATA MESAJI) maskele. Playwright hata mesajlari beklenen/gelen
-  // degerleri icerebilir; en buyuk sizinti vektoru burasidir.
+  // Before going to the LLM: load secret values + redact the failure data (scenario
+  // name, step text, ERROR MESSAGE). Playwright error messages can contain
+  // expected/received values; this is the biggest leak vector.
   registerAllSensitive();
   const safeFailures = redactDeep(failures);
 
@@ -98,12 +98,12 @@ export async function analyzeFailures(
   process.stdout.write('\n');
 
   if (message.stop_reason === 'refusal') {
-    throw new Error('Model istegi reddetti (stop_reason: refusal).');
+    throw new Error('The model refused the request (stop_reason: refusal).');
   }
 
   const textBlock = message.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Modelden metin yaniti alinamadi.');
+    throw new Error('No text response received from the model.');
   }
   return JSON.parse(textBlock.text);
 }

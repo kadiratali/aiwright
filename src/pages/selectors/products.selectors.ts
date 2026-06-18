@@ -1,6 +1,6 @@
 /**
- * Products (inventory) sayfasinin selector'lari.
- * Sabit olanlar string; urun adina gore degisenler slug ureten fonksiyon.
+ * Selectors for the products (inventory) page.
+ * Fixed ones are strings; those that vary by product name are functions that build a slug.
  */
 
 /** "Sauce Labs Bolt T-Shirt" -> "sauce-labs-bolt-t-shirt" */

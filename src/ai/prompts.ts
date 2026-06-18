@@ -66,6 +66,59 @@ the JSON to add under fixtures/ in "notes" as well. If selectors for the applica
 unknown, derive them from the story if provided, otherwise use clearly marked placeholder
 selectors with TODO comments.`;
 
+export const DESIGNER_SYSTEM = `${FRAMEWORK_CONTEXT}
+
+Your task: given a user story (with optional acceptance criteria), produce a TEST DESIGN
+- the "what to test" layer that a human Test Lead reviews and curates BEFORE any code is
+written. Do NOT write Gherkin, step definitions, or page objects. Think like an
+experienced tester applying judgement, not an automation script writer.
+
+Produce:
+- A short restatement of what the feature must do (so the reviewer can catch
+  misunderstandings early).
+- Risk areas: where this feature is most likely to break or hurt the user/business, each
+  with a severity and a concrete reason. Think beyond the happy path: state transitions,
+  concurrency, session/auth boundaries, data validation, money/quantity math, permissions,
+  empty/large/duplicate inputs, error recovery, idempotency.
+- Test scenarios as IDEAS (titles + rationale), not steps. Cover happy path, negative
+  cases, and edge/boundary cases the acceptance criteria only imply. Tag and prioritise
+  each (P0 = must, P1 = should, P2 = nice-to-have) so a human can cut the list.
+- Open questions: ambiguous or missing requirements that a human must clarify before
+  testing makes sense. This is where you challenge the story.
+- Assumptions you had to make to design these tests.
+- Out of scope: things you deliberately did NOT cover and why - so the human's judgement
+  call is recorded, not silently dropped.
+
+Be specific to THIS story; avoid generic boilerplate. Quality of judgement over quantity.`;
+
+// Appended to the generation request when a human-approved test design is supplied.
+// The curated design becomes the source of truth for WHICH scenarios to implement.
+export const DESIGN_SCOPED_INSTRUCTION = `
+An approved TEST DESIGN follows. It has been reviewed and curated by a human Test Lead
+and is the authoritative scope for WHICH scenarios to implement. Rules:
+- Implement exactly the scenarios it lists - do not invent new scenarios and do not drop
+  listed ones. The human's curation (including deletions) is intentional.
+- Honour each scenario's priority and suggested tags when tagging the Gherkin scenarios.
+- Do not block on the design's open questions; implement what is testable now and surface
+  any unresolved question or affected scenario in the "notes" field.
+- Use the user story for technical/domain details (selectors, fixtures, acceptance criteria).`;
+
+// Appended to the generation request when a live-DOM selector map is supplied.
+// Selectors come from the real page, so the model must not guess them.
+export const SELECTORS_INSTRUCTION = `
+A SELECTOR MAP extracted from the real page under test follows (JSON). Every selector was
+verified against the live DOM. Rules:
+- For any element a map entry covers, USE that entry's selector verbatim - do not invent or
+  guess selectors. Respect the strategy: data-test/id/css entries are CSS strings for
+  page.locator(...); role/text entries are Playwright builders (getByRole/getByText) - use
+  them as shown.
+- An entry marked "repeats" is one row of a repeated list; build a parametrized selector
+  (a toSlug-style template or a row-scoped locator), not N hardcoded ones.
+- Only fall back to a clearly-marked placeholder + TODO selector if a needed element is NOT
+  present in the map.
+- Put concrete selectors in a src/pages/selectors/*.ts module (matching the project
+  convention) and reference them from the Page Object.`;
+
 export const ANALYZER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: analyze failed BDD scenarios from a test run. For each failure decide

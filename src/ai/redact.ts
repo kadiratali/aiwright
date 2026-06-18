@@ -1,18 +1,18 @@
 /**
- * PII / hassas veri maskeleme.
+ * PII / sensitive-data redaction.
  *
- * LLM'e (Claude API) giden HER metin once buradan gecirilir. Iki katman:
- *   1) Desen tabanli: TCKN, kredi karti, IBAN, e-posta, telefon gibi formatlar
- *   2) Deger tabanli (denylist): fixtures/sensitive/ altindaki gercek degerler
- *      birebir maskelenir (formata uymasa bile).
+ * EVERY text that goes to the LLM (Claude API) passes through here first. Two layers:
+ *   1) Pattern-based: formats like national ID, credit card, IBAN, email, phone
+ *   2) Value-based (denylist): real values under fixtures/sensitive/ are masked
+ *      verbatim (even when they don't match a pattern).
  *
- * Bias: az maskelemektense fazla maskelemek. Hassas veri sizmasi, bir hata
- * mesajinda fazladan rakam dizisinin maskelenmesinden cok daha kotudur.
+ * Bias: over-redact rather than under-redact. Leaking sensitive data is far worse
+ * than masking an extra digit sequence in an error message.
  */
 
 const secretValues = new Set<string>();
 
-/** Bilinen gizli degerleri denylist'e ekler (>= 4 karakter olanlari). */
+/** Adds known secret values to the denylist (those with >= 4 characters). */
 export function registerSecrets(values: Iterable<string>): void {
   for (const v of values) {
     if (typeof v === 'string' && v.trim().length >= 4) {
@@ -38,16 +38,16 @@ const PATTERNS: Pattern[] = [
   { name: 'PHONE', re: /\b(?:\+?90|0)?5\d{9}\b/g }
 ];
 
-/** Tek bir metni maskeler. */
+/** Redacts a single string. */
 export function redact(input: string): string {
   let out = input;
 
-  // Once birebir gizli degerler (en spesifik)
+  // First the verbatim secret values (most specific)
   for (const secret of secretValues) {
     out = out.split(secret).join('[REDACTED]');
   }
 
-  // Sonra desenler
+  // Then the patterns
   for (const { name, re } of PATTERNS) {
     out = out.replace(re, `[REDACTED:${name}]`);
   }
@@ -55,7 +55,7 @@ export function redact(input: string): string {
   return out;
 }
 
-/** Obje/dizi icindeki tum string'leri ozyinelemeli maskeler. */
+/** Recursively redacts all strings inside an object/array. */
 export function redactDeep<T>(value: T): T {
   if (typeof value === 'string') {
     return redact(value) as unknown as T;
@@ -73,7 +73,7 @@ export function redactDeep<T>(value: T): T {
   return value;
 }
 
-/** Bir objedeki tum string degerleri ozyinelemeli toplar (denylist beslemek icin). */
+/** Recursively collects all string values in an object (to feed the denylist). */
 export function collectStrings(value: unknown, acc: string[] = []): string[] {
   if (typeof value === 'string') {
     acc.push(value);

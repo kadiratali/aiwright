@@ -5,12 +5,12 @@ import { registerSecrets, collectStrings } from '../ai/redact';
 const cache = new Map<string, unknown>();
 const SENSITIVE_DIR = path.join(process.cwd(), 'fixtures', 'sensitive');
 
-/** fixtures/<name>.json dosyasini okur ve cache'ler. */
+/** Reads and caches the fixtures/<name>.json file. */
 export function loadFixture<T>(name: string): T {
   if (!cache.has(name)) {
     const file = path.join(process.cwd(), 'fixtures', `${name}.json`);
     if (!fs.existsSync(file)) {
-      throw new Error(`Fixture bulunamadi: ${file}`);
+      throw new Error(`Fixture not found: ${file}`);
     }
     cache.set(name, JSON.parse(fs.readFileSync(file, 'utf-8')));
   }
@@ -27,23 +27,23 @@ export function getUser(key: string): UserCredentials {
   const user = users[key];
   if (!user) {
     throw new Error(
-      `"${key}" kullanicisi fixtures/users.json icinde yok. Mevcutlar: ${Object.keys(users).join(', ')}`
+      `User "${key}" not found in fixtures/users.json. Available: ${Object.keys(users).join(', ')}`
     );
   }
   return user;
 }
 
 /**
- * Hassas fixture'lari fixtures/sensitive/<name>.json'dan okur.
- * Okunan TUM string degerleri otomatik olarak maskeleme denylist'ine eklenir,
- * boylece bu degerler kazara LLM'e gitse bile [REDACTED] olur.
- * Bu dosyalar .gitignore'da ve Claude Code icin Read-deny kapsamindadir.
+ * Reads sensitive fixtures from fixtures/sensitive/<name>.json.
+ * ALL string values read are automatically added to the redaction denylist,
+ * so even if these values accidentally reach the LLM they become [REDACTED].
+ * These files are in .gitignore and Read-denied for Claude Code.
  */
 export function loadSensitive<T>(name: string): T {
   const file = path.join(SENSITIVE_DIR, `${name}.json`);
   if (!fs.existsSync(file)) {
     throw new Error(
-      `Hassas fixture bulunamadi: ${file}. fixtures/sensitive/${name}.json olusturun (bkz. *.example.json).`
+      `Sensitive fixture not found: ${file}. Create fixtures/sensitive/${name}.json (see *.example.json).`
     );
   }
   const data = JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
@@ -52,9 +52,9 @@ export function loadSensitive<T>(name: string): T {
 }
 
 /**
- * fixtures/sensitive/ altindaki tum gercek fixture'lari (example'lar haric)
- * okuyup denylist'i doldurur. ai:generate / ai:analyze gibi ayri proseslerde,
- * LLM'e veri gondermeden ONCE cagrilir.
+ * Reads all real fixtures under fixtures/sensitive/ (excluding the examples)
+ * and populates the denylist. Called BEFORE sending any data to the LLM in
+ * separate processes such as ai:generate / ai:analyze.
  */
 export function registerAllSensitive(): void {
   if (!fs.existsSync(SENSITIVE_DIR)) return;
@@ -64,7 +64,7 @@ export function registerAllSensitive(): void {
       const data = JSON.parse(fs.readFileSync(path.join(SENSITIVE_DIR, entry), 'utf-8'));
       registerSecrets(collectStrings(data));
     } catch {
-      // bozuk/okunamayan dosyayi sessizce atla; denylist en iyi caba
+      // silently skip a corrupt/unreadable file; the denylist is best-effort
     }
   }
 }

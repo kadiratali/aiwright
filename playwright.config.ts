@@ -16,7 +16,6 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [
     ['list'],
-    ['html', { outputFolder: 'reports/playwright-report', open: 'never' }],
     cucumberReporter('json', { outputFile: 'reports/cucumber-report.json' }),
     cucumberReporter('html', { outputFile: 'reports/cucumber-report.html' })
   ],
