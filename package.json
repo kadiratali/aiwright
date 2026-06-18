@@ -2,7 +2,7 @@
   "name": "aiwright",
   "version": "0.1.0",
   "description": "AI QA Agent - TypeScript + Playwright + Cucumber BDD framework with Claude-powered test generation and failure analysis",
-  "private": true,
+  "license": "MIT",
   "scripts": {
     "test": "bddgen && playwright test",
     "test:smoke": "bddgen --tags @smoke && playwright test",
