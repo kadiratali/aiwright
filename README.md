@@ -119,6 +119,31 @@ npm run ai:analyze
 
 Detailed report: `reports/ai-analysis.md`
 
+## Worked example (real output)
+
+Inspecting an authenticated page produces verified, stability-ranked selectors — the
+repeated product rows collapse to one representative to parametrize, and nothing is guessed:
+
+```
+$ npm run ai:inspect -- /inventory.html --login standard
+Swag Labs
+  Elements found    : 45
+  Unique selectors  : 40
+  Repeated (lists)  : 5  (parametrize per item)
+  Needs disambig.   : 0
+Selector map: reports/selector-map-inventory-html.json
+```
+
+When a test fails, the analyzer classifies it instead of leaving you to triage:
+
+```
+$ npm run ai:analyze
+[test-bug] Products heading text is exactly 'Products'   (confidence: high)
+  Root cause : the step asserts "Product" but the app correctly renders "Products";
+               toHaveText is exact-match, so it failed against the genuinely correct value.
+  Fix        : change the step to read "Products". No app bug; no page-object change.
+```
+
 ## Project Structure
 
 ```

@@ -12,7 +12,6 @@ Acceptance Criteria:
 
 Technical notes (application under test: https://www.saucedemo.com):
 - Login is required first (existing step: the user logs in as the "standard" user; existing fixture users: standard, locked_out).
-- Product cards are .inventory_item, product name is .i
-nventory_item_name.
+- Product cards are .inventory_item, product name is .inventory_item_name.
 - Add/remove buttons have data-test attributes like data-test="add-to-cart-sauce-labs-backpack" and data-test="remove-sauce-labs-backpack".
 - The cart badge is .shopping_cart_badge inside the header.
