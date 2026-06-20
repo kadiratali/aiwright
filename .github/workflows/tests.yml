@@ -80,10 +80,14 @@ jobs:
             curl -sf http://localhost:8091/products >/dev/null && { echo "API up"; break; }
             echo "waiting for API ($i)…"; sleep 5
           done
+          # The dev UI serves the shell immediately but is only interactive once ng serve
+          # finishes compiling — wait for that marker instead of a bare HTTP 200.
           for i in $(seq 1 60); do
-            curl -sf http://localhost:4200 >/dev/null && { echo "UI up"; break; }
-            echo "waiting for UI ($i)…"; sleep 5
+            docker compose -f "$COMPOSE" logs angular-ui 2>&1 | grep -q "Application bundle generation complete" \
+              && { echo "UI bundle compiled"; break; }
+            echo "waiting for UI bundle ($i)…"; sleep 5
           done
+          curl -sf http://localhost:4200 >/dev/null && echo "UI serving"
 
       - name: Run BDD tests (self-hosted app)
         run: npm test
