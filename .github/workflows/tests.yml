@@ -89,6 +89,9 @@ jobs:
           done
           curl -sf http://localhost:4200 >/dev/null && echo "UI serving"
 
+      - name: Warm up the app (compile lazy routes, boot the API)
+        run: node ci/warmup.mjs
+
       - name: Run BDD tests (self-hosted app)
         run: npm test
 
