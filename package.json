@@ -15,7 +15,8 @@
     "ai:generate": "ts-node src/cli/index.ts generate",
     "ai:analyze": "ts-node src/cli/index.ts analyze",
     "typecheck": "tsc --noEmit",
-    "verify:redaction": "ts-node scripts/redact-check.ts"
+    "verify:redaction": "ts-node scripts/redact-check.ts",
+    "eval": "ts-node scripts/eval.ts"
   },
   "engines": {
     "node": ">=20"
