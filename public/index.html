@@ -48,7 +48,11 @@
       margin: 6px 0 18px; }
     .file-h { font-size: 13px; color: var(--accent); margin: 0 0 4px; font-weight: 600; }
     .err { color: var(--bad); font-size: 13px; margin-top: 10px; }
-    .spin { color: var(--muted); font-size: 13px; }
+    .spin { color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
+    .spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--line);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hint { color: var(--muted); font-size: 12px; opacity: .8; }
     .saved { color: var(--ok); font-size: 13px; margin-top: 12px; white-space: pre-line; }
   </style>
 </head>
@@ -109,12 +113,30 @@
       return data;
     }
 
+    // Shows a spinner + live elapsed-seconds counter so long calls never look frozen.
+    // Returns a stop() function.
+    function startBusy(el, label, btn) {
+      const t0 = Date.now();
+      const oldBtnText = btn ? btn.textContent : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+      const tick = () => {
+        const s = Math.floor((Date.now() - t0) / 1000);
+        el.innerHTML = `<span class="spinner"></span><span>${label} (${s}s)</span>`;
+      };
+      tick();
+      const id = setInterval(tick, 1000);
+      return () => {
+        clearInterval(id);
+        el.innerHTML = '';
+        if (btn) { btn.disabled = false; btn.textContent = oldBtnText; }
+      };
+    }
+
     $('analyzeBtn').onclick = async () => {
       const story = $('story').value.trim();
       $('analyzeErr').textContent = '';
       if (!story) { $('analyzeErr').textContent = 'Enter a user story first.'; return; }
-      $('analyzeBtn').disabled = true;
-      $('analyzeStatus').textContent = 'Analyzing the story…';
+      const stop = startBusy($('analyzeStatus'), 'Analyzing the story…', $('analyzeBtn'));
       try {
         currentDesign = await postJSON('/api/design', { story });
         renderDesign(currentDesign);
@@ -123,8 +145,7 @@
       } catch (e) {
         $('analyzeErr').textContent = e.message;
       } finally {
-        $('analyzeBtn').disabled = false;
-        $('analyzeStatus').textContent = '';
+        stop();
       }
     };
 
@@ -157,8 +178,7 @@
       const selected = [...document.querySelectorAll('#scenarios input:checked')].map((c) => +c.dataset.i);
       $('genErr').textContent = '';
       if (selected.length === 0) { $('genErr').textContent = 'Pick at least one scenario.'; return; }
-      $('generateBtn').disabled = true;
-      $('genStatus').textContent = 'Generating test code…';
+      const stop = startBusy($('genStatus'), 'Generating test code — this can take 10–30s…', $('generateBtn'));
       try {
         currentArtifacts = await postJSON('/api/generate', {
           story: $('story').value.trim(), design: currentDesign, selected
@@ -170,8 +190,7 @@
       } catch (e) {
         $('genErr').textContent = e.message;
       } finally {
-        $('generateBtn').disabled = false;
-        $('genStatus').textContent = '';
+        stop();
       }
     };
 
@@ -187,16 +206,14 @@
 
     $('saveBtn').onclick = async () => {
       $('saveErr').textContent = ''; $('saved').textContent = '';
-      $('saveBtn').disabled = true;
-      $('saveStatus').textContent = 'Saving…';
+      const stop = startBusy($('saveStatus'), 'Saving…', $('saveBtn'));
       try {
         const { written } = await postJSON('/api/save', { artifacts: currentArtifacts });
         $('saved').textContent = 'Saved:\n' + written.join('\n');
       } catch (e) {
         $('saveErr').textContent = e.message;
       } finally {
-        $('saveBtn').disabled = false;
-        $('saveStatus').textContent = '';
+        stop();
       }
     };
   </script>
