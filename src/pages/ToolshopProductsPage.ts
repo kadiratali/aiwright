@@ -1,9 +1,7 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { ToolshopProductSelectors as S } from './selectors/toolshop.selectors';
-
-// Navigated with absolute URLs so the page works regardless of the configured baseURL.
-const SITE = 'https://practicesoftwaretesting.com';
+import { TARGET_URL as SITE } from '../config';
 
 export class ToolshopProductsPage extends BasePage {
   readonly searchInput = this.page.locator(S.searchQuery);

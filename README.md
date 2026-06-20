@@ -3,6 +3,16 @@
 A Claude-powered BDD test automation framework built on TypeScript + **playwright-bdd**
 (Gherkin → Playwright Test runner).
 
+> **What it is — a copilot for the *first draft* of your BDD tests.**
+> You describe a feature; aiwright proposes *what to test* (risk-ranked scenarios you
+> curate), grounds the code in your app's **real DOM** (inspected selectors, not guesses)
+> and **real API** (your existing page objects and steps), and **self-corrects until it
+> compiles**. It accelerates an engineer's first draft.
+>
+> **What it is not** — an autonomous test writer. It keeps a human in the loop, it does not
+> ship tests unreviewed, and it does not pretend to make passing tests for behaviour your
+> app does not have. `tsc` verification proves the code compiles; you still own the green.
+
 ```
 User Story ──▶ AI Test Designer ──▶ test-design.md  ("what to test")
                                           │   ← human reviews / edits / decides scope

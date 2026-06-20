@@ -6,10 +6,10 @@ import { ToolshopLoginPage } from '../pages/ToolshopLoginPage';
 import { getUser } from '../fixtures/data';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
+import { TARGET_URL as BASE_URL } from '../config';
 
 dotenv.config();
 
-const BASE_URL = process.env.BASE_URL ?? 'https://practicesoftwaretesting.com';
 const MAX_ELEMENTS = 80;
 
 export type SelectorStrategy = 'data-test' | 'id' | 'role' | 'text' | 'css';

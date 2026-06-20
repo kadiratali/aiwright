@@ -1,9 +1,7 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { ToolshopLoginSelectors as S } from './selectors/toolshop.selectors';
-
-// Navigated with absolute URLs so the page works regardless of the configured baseURL.
-const SITE = 'https://practicesoftwaretesting.com';
+import { TARGET_URL as SITE } from '../config';
 
 export class ToolshopLoginPage extends BasePage {
   readonly emailInput = this.page.locator(S.email);
