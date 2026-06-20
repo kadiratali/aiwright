@@ -20,7 +20,7 @@ export default defineConfig({
     cucumberReporter('html', { outputFile: 'reports/cucumber-report.html' })
   ],
   use: {
-    baseURL: process.env.BASE_URL ?? 'https://www.saucedemo.com',
+    baseURL: process.env.BASE_URL ?? 'https://practicesoftwaretesting.com',
     headless: process.env.HEADLESS !== 'false',
     viewport: { width: 1280, height: 720 },
     screenshot: 'only-on-failure',

@@ -1,13 +1,10 @@
 import { test as base } from 'playwright-bdd';
-import { LoginPage } from '../pages/LoginPage';
-import { ProductsPage } from '../pages/ProductsPage';
+import { ToolshopLoginPage } from '../pages/ToolshopLoginPage';
 
 type PageFixtures = {
-  loginPage: LoginPage;
-  productsPage: ProductsPage;
+  loginPage: ToolshopLoginPage;
 };
 
 export const test = base.extend<PageFixtures>({
-  loginPage: async ({ page }, use) => use(new LoginPage(page)),
-  productsPage: async ({ page }, use) => use(new ProductsPage(page))
+  loginPage: async ({ page }, use) => use(new ToolshopLoginPage(page))
 });

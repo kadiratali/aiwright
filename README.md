@@ -63,11 +63,11 @@ So the generator uses **real** selectors instead of guessing, this opens the liv
 extracts a stability-ranked selector map from the DOM: `data-test` > stable id >
 role + accessible name > static text. It verifies each selector is unique, scopes ambiguous
 ones to a stable ancestor, and collapses repeated list rows to one representative to
-parametrize. With `--login` it signs in first via the project's `LoginPage`.
+parametrize. With `--login` it signs in first via the project's login page.
 
 ```bash
-npm run ai:inspect -- /                        # a public page (login)
-npm run ai:inspect -- /inventory.html --login standard   # behind authentication
+npm run ai:inspect -- https://practicesoftwaretesting.com           # any public page
+npm run ai:inspect -- https://practicesoftwaretesting.com/auth/login
 ```
 
 Output: `reports/selector-map-<slug>.json`. Accepts a full URL or a path resolved against
@@ -139,13 +139,13 @@ Inspecting an authenticated page produces verified, stability-ranked selectors â
 repeated product rows collapse to one representative to parametrize, and nothing is guessed:
 
 ```
-$ npm run ai:inspect -- /inventory.html --login standard
-Swag Labs
+$ npm run ai:inspect -- https://practicesoftwaretesting.com
+Practice Software Testing - Toolshop - v5.0
   Elements found    : 45
   Unique selectors  : 40
   Repeated (lists)  : 5  (parametrize per item)
   Needs disambig.   : 0
-Selector map: reports/selector-map-inventory-html.json
+Selector map: reports/selector-map-practicesoftwaretesting-com.json
 ```
 
 When a test fails, the analyzer classifies it instead of leaving you to triage:
@@ -200,7 +200,7 @@ Redaction regression check: `npm run verify:redaction`. Detailed policy:
 ### Conventions
 
 - **Steps use fixtures**: `async ({ loginPage }, param) => ...` â€” never write `new LoginPage(page)`.
-- **Test data lives in fixtures/*.json**: no hardcoded credentials in steps; use `getUser('standard')`.
+- **Test data lives in fixtures/*.json**: no hardcoded credentials in steps; use `getUser('customer')`.
 - **Selector priority**: `data-test`/`data-testid` > id > role. No brittle CSS chains.
 - **Scenarios are independent**: shared setup goes in `Background`, no state shared between scenarios.
 
