@@ -26,6 +26,8 @@ export interface SelectorEntry {
   /** How many elements the selector matches (1 = unique). */
   count: number;
   ambiguous: boolean;
+  /** True when the selector matched nothing (count 0) - needs manual attention. */
+  unresolved?: boolean;
   /** Ancestor selector used to disambiguate, if any. */
   scope?: string;
   /** If this entry represents a repeated structure, how many siblings it stands for. */
@@ -137,6 +139,9 @@ function collectScript(maxEls: number): string {
       if (el.tagName === 'IMG') return (el.getAttribute('alt') || '').trim();
       const val = el.getAttribute('value');
       if (val && el.tagName === 'INPUT') return val.trim();
+      // Skip textContent for container elements (those wrapping other interactive
+      // nodes) - otherwise a menuitem/nav grabs the whole submenu's text as its name.
+      if (el.querySelector('a,button,input,select,textarea,[role],[data-test],[data-testid]')) return '';
       const txt = (el.textContent || '').trim().replace(/\\s+/g, ' ');
       return txt.length <= 80 ? txt : '';
     };
@@ -200,8 +205,10 @@ function collectScript(maxEls: number): string {
       const all = root.querySelectorAll('*');
       for (const el of all) {
         if (el.shadowRoot) walk(el.shadowRoot);
-        else if (el.tagName && el.tagName.includes('-') && !el.shadowRoot) {
-          // custom element with no reachable shadow root -> likely closed
+        else if (el.tagName && el.tagName.includes('-') && !el.shadowRoot && el.childElementCount === 0) {
+          // Hyphenated custom element with an EMPTY light DOM -> its content is likely
+          // behind a closed shadow root. Components that render light DOM (e.g. Angular
+          // app-* with children) are reachable and must NOT be counted here.
           closedShadow++;
         }
       }
@@ -318,7 +325,8 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
         entry.scope = `[data-test="${escAttr(raw.ancestorDataTest)}"]`;
         entry.count = await countOf(page, entry);
       }
-      entry.ambiguous = entry.count !== 1;
+      entry.ambiguous = entry.count > 1;
+      entry.unresolved = entry.count === 0;
       entries.push(entry);
     }
 
@@ -332,7 +340,8 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
       const key = `${e.scope ?? ''}||${e.selector}`;
       const prev = seen.get(key);
       if (prev) {
-        prev.repeats = (prev.repeats ?? 1) + 1;
+        // The real repeat count is how many elements the selector matches on the page.
+        prev.repeats = prev.count > 1 ? prev.count : (prev.repeats ?? 1) + 1;
         prev.note = `repeats ${prev.repeats}x — one per item; scope to the row or parametrize (e.g. a toSlug-style template)`;
         continue;
       }

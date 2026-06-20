@@ -80,14 +80,16 @@ async function main() {
       const map = await inspectPage(target, { loginUserKey });
       const mapFile = writeSelectorMap(map);
 
-      const unique = map.entries.filter((e) => !e.ambiguous).length;
+      const unique = map.entries.filter((e) => e.count === 1).length;
       const repeated = map.entries.filter((e) => e.repeats).length;
-      const genuineAmbiguous = map.entries.filter((e) => e.ambiguous && !e.repeats).length;
+      const ambiguous = map.entries.filter((e) => e.ambiguous && !e.repeats).length;
+      const unresolved = map.entries.filter((e) => e.unresolved).length;
       console.log(`\n${map.title}`);
       console.log(`  Elements found    : ${map.entries.length}`);
       console.log(`  Unique selectors  : ${unique}`);
       console.log(`  Repeated (lists)  : ${repeated}  (parametrize per item)`);
-      console.log(`  Needs disambig.   : ${genuineAmbiguous}`);
+      console.log(`  Needs disambig.   : ${ambiguous}`);
+      console.log(`  Unresolved (0 hit): ${unresolved}`);
       for (const w of map.warnings) console.log(`  ! ${w}`);
       console.log(`\nSelector map: ${mapFile}`);
       console.log('Review it, then: npm run ai:generate -- <story> --selectors ' + mapFile);
