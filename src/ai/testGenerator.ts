@@ -1,9 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getClient, MODEL } from './client';
-import { GENERATOR_SYSTEM, DESIGN_SCOPED_INSTRUCTION, SELECTORS_INSTRUCTION } from './prompts';
+import {
+  GENERATOR_SYSTEM,
+  DESIGN_SCOPED_INSTRUCTION,
+  SELECTORS_INSTRUCTION,
+  PROJECT_SURFACE_INSTRUCTION
+} from './prompts';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
+import { readProjectSurface } from './projectSurface';
 
 export interface GeneratedArtifacts {
   featureFileName: string;
@@ -62,6 +68,12 @@ export async function generateTests(
   const safeStory = redact(userStory);
 
   let content = `Generate the BDD test artifacts for this user story:\n\n${safeStory}`;
+
+  // Ground generation in the project's real API surface so it reuses existing
+  // helpers/methods/steps instead of inventing them (the "wiring gap").
+  const surface = readProjectSurface();
+  if (surface) content += `\n\n${PROJECT_SURFACE_INSTRUCTION}\n\nPROJECT API SURFACE:\n\n${surface}`;
+
   if (approvedDesign?.trim()) {
     const safeDesign = redact(approvedDesign);
     content += `\n\n${DESIGN_SCOPED_INSTRUCTION}\n\nAPPROVED TEST DESIGN:\n\n${safeDesign}`;

@@ -103,6 +103,18 @@ and is the authoritative scope for WHICH scenarios to implement. Rules:
   any unresolved question or affected scenario in the "notes" field.
 - Use the user story for technical/domain details (selectors, fixtures, acceptance criteria).`;
 
+// Always appended to the generation request: the project's real API surface, so the
+// model reuses what exists instead of inventing helpers/methods/steps (the "wiring gap").
+export const PROJECT_SURFACE_INSTRUCTION = `
+The PROJECT API SURFACE below lists what already exists in this codebase. Rules:
+- Reuse these data helpers, fixtures, and page-object methods/locators verbatim. Do NOT
+  import or call anything that is not listed unless you also define it in this output.
+- Reuse the existing step phrasings verbatim where they fit, and do NOT redefine them in
+  the steps file (redefining a step causes a duplicate-definition error).
+- If a scenario genuinely needs a new helper, page-object method, locator, or test data,
+  add it AND include the exact code + wiring (fixture registration, JSON, etc.) in the
+  "notes" field so a human can drop it in. Never reference an unlisted symbol silently.`;
+
 // Appended to the generation request when a live-DOM selector map is supplied.
 // Selectors come from the real page, so the model must not guess them.
 export const SELECTORS_INSTRUCTION = `
