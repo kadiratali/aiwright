@@ -9,3 +9,10 @@ export const ToolshopLoginSelectors = {
   error: '[data-test="login-error"]',
   navMenu: '[data-test="nav-menu"]'
 } as const;
+
+export const ToolshopProductSelectors = {
+  searchQuery: '[data-test="search-query"]',
+  searchSubmit: '[data-test="search-submit"]',
+  searchReset: '[data-test="search-reset"]',
+  productName: '[data-test="product-name"]'
+} as const;
