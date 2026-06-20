@@ -1,4 +1,4 @@
-name: BDD Tests
+name: CI
 
 on:
   push:
@@ -6,10 +6,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The BDD suite targets a live third-party app (practicesoftwaretesting.com) that sits
+# behind a Cloudflare "verify you are human" challenge. That challenge blocks data-centre
+# IPs such as GitHub's runners, so the app never loads in CI and the browser tests cannot
+# run there. They are run locally (`npm test`) where a normal browser/IP passes.
+#
+# CI therefore gates on the reliable, offline checks below. To run the E2E suite in CI,
+# self-host the app under test (it ships as a Docker image) and point TARGET_URL at the
+# local instance — then the Cloudflare challenge no longer applies.
 jobs:
-  test:
+  checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,45 +31,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Reliable, offline gates that don't depend on the live app under test.
       - name: Type check
         run: npm run typecheck
 
       - name: Redaction check
         run: npm run verify:redaction
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      # End-to-end against the live app. Allowed to fail so a third-party outage or a
-      # cold-start blip doesn't red the build; the report still uploads for inspection.
-      - name: Run BDD tests
-        run: npm test
-        continue-on-error: true
-
-      - name: AI failure analysis
-        if: failure()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "### AI analysis skipped" >> "$GITHUB_STEP_SUMMARY"
-            echo "ANTHROPIC_API_KEY secret is not set (Settings > Secrets and variables > Actions)." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          npm run ai:analyze || true
-          if [ -f reports/ai-analysis.md ]; then
-            cat reports/ai-analysis.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports
-          path: |
-            reports/cucumber-report.html
-            reports/cucumber-report.json
-            reports/ai-analysis.md
-          retention-days: 14
-          if-no-files-found: ignore
