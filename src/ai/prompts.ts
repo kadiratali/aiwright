@@ -131,6 +131,18 @@ verified against the live DOM. Rules:
 - Put concrete selectors in a src/pages/selectors/*.ts module (matching the project
   convention) and reference them from the Page Object.`;
 
+// Used by the self-correction loop: the generated code didn't compile; fix it.
+export const CORRECTION_INSTRUCTION = `
+The generated artifacts below do not compile. Fix them so \`tsc\` passes. The TypeScript
+errors and the current source of the existing project files follow. Rules:
+- When a page object is missing a member, return the COMPLETE updated page-object file in
+  "pageObjects" (the existing content PLUS the new members merged in), using the existing
+  file name so it replaces the file. Do not drop existing members.
+- Keep selectors real (from the selector map if provided); otherwise add a clearly marked
+  placeholder selector with a TODO.
+- Follow the project conventions and keep the feature/steps consistent with the fixes.
+- Return the FULL corrected artifact set (feature, steps, page objects, notes).`;
+
 export const ANALYZER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: analyze failed BDD scenarios from a test run. For each failure decide

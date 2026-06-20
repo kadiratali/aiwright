@@ -5,8 +5,10 @@ import {
   GENERATOR_SYSTEM,
   DESIGN_SCOPED_INSTRUCTION,
   SELECTORS_INSTRUCTION,
-  PROJECT_SURFACE_INSTRUCTION
+  PROJECT_SURFACE_INSTRUCTION,
+  CORRECTION_INSTRUCTION
 } from './prompts';
+import type { TscError } from './verifier';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
 import { readProjectSurface } from './projectSurface';
@@ -60,8 +62,6 @@ export async function generateTests(
   approvedDesign?: string,
   selectorMapJson?: string
 ): Promise<GeneratedArtifacts> {
-  const client = getClient();
-
   // Before going to the LLM: load known secret values + redact the story (and the
   // human-edited design / selector map, if any).
   registerAllSensitive();
@@ -83,6 +83,12 @@ export async function generateTests(
     content += `\n\n${SELECTORS_INSTRUCTION}\n\nSELECTOR MAP:\n\n${safeMap}`;
   }
 
+  return runGenerator(content);
+}
+
+/** Streams a generation request with the artifact JSON schema and parses the result. */
+async function runGenerator(content: string): Promise<GeneratedArtifacts> {
+  const client = getClient();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 64000,
@@ -91,12 +97,7 @@ export async function generateTests(
     output_config: {
       format: { type: 'json_schema', schema: OUTPUT_SCHEMA }
     },
-    messages: [
-      {
-        role: 'user',
-        content
-      }
-    ]
+    messages: [{ role: 'user', content }]
   });
 
   stream.on('text', () => process.stdout.write('.'));
@@ -114,17 +115,61 @@ export async function generateTests(
   return JSON.parse(textBlock.text) as GeneratedArtifacts;
 }
 
-export function writeArtifacts(artifacts: GeneratedArtifacts, rootDir = process.cwd()): string[] {
+/**
+ * Self-correction step: given tsc errors and the current source of the existing project
+ * files, asks the model to return corrected artifacts that compile (merging new members
+ * into the full page-object files so they can replace the originals).
+ */
+export async function correctArtifacts(
+  userStory: string,
+  artifacts: GeneratedArtifacts,
+  errors: TscError[],
+  existingSources: { fileName: string; content: string }[],
+  selectorMapJson?: string
+): Promise<GeneratedArtifacts> {
+  registerAllSensitive();
+  const errorText = errors.map((e) => `${path.basename(e.file)}:${e.line}  ${e.message}`).join('\n');
+  const sourcesText = existingSources.map((s) => `// ${s.fileName}\n${s.content}`).join('\n\n');
+
+  let content =
+    `${CORRECTION_INSTRUCTION}\n\nUSER STORY:\n\n${redact(userStory)}\n\n` +
+    `CURRENT ARTIFACTS (JSON):\n\n${redact(JSON.stringify(artifacts, null, 2))}\n\n` +
+    `TYPESCRIPT ERRORS:\n\n${errorText}\n\n` +
+    `EXISTING PROJECT SOURCES (return full updated files in pageObjects to replace these):\n\n${redact(sourcesText)}`;
+
+  const surface = readProjectSurface();
+  if (surface) content += `\n\n${PROJECT_SURFACE_INSTRUCTION}\n\nPROJECT API SURFACE:\n\n${surface}`;
+  if (selectorMapJson?.trim()) {
+    content += `\n\n${SELECTORS_INSTRUCTION}\n\nSELECTOR MAP:\n\n${redact(selectorMapJson)}`;
+  }
+
+  return runGenerator(content);
+}
+
+export function writeArtifacts(
+  artifacts: GeneratedArtifacts,
+  rootDir = process.cwd(),
+  opts: { overwrite?: boolean } = {}
+): string[] {
   const written: string[] = [];
 
   const write = (dir: string, fileName: string, content: string) => {
     // Drop any directory parts the model may emit; keep only the file name
     const target = path.join(rootDir, dir, path.basename(fileName));
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    if (fs.existsSync(target)) {
+    const exists = fs.existsSync(target);
+    if (exists && !opts.overwrite) {
       const backup = `${target}.generated`;
       fs.writeFileSync(backup, content);
       written.push(`${backup} (existing file was not overwritten)`);
+      return;
+    }
+    if (exists && opts.overwrite) {
+      // Back up the original once before the self-correction loop replaces it.
+      const bak = `${target}.bak`;
+      if (!fs.existsSync(bak)) fs.copyFileSync(target, bak);
+      fs.writeFileSync(target, content);
+      written.push(`${target} (updated; original at ${path.basename(bak)})`);
       return;
     }
     fs.writeFileSync(target, content);

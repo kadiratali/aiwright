@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { generateTests, writeArtifacts } from '../ai/testGenerator';
+import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGenerator';
 import { designTests, writeDesignReport } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { verifyTypeScript } from '../ai/verifier';
@@ -28,6 +28,9 @@ Usage:
       instead of guessed/placeholder ones.
       With --verify, runs tsc on the generated code and reports whether it
       compiles (and exactly what wiring is missing if not).
+      With --fix, also feeds any compile errors back to the model to
+      self-correct (up to 2 rounds), merging new members into the existing
+      page objects (original backed up as .bak).
 
   npm run ai:analyze [-- <report-path>]
       Analyzes the failures in the Cucumber JSON report.
@@ -121,7 +124,8 @@ async function main() {
       };
       const designPath = takeFlag('--design');
       const selectorsPath = takeFlag('--selectors');
-      const verify = takeBool('--verify');
+      const fix = takeBool('--fix');
+      const verify = takeBool('--verify') || fix;
 
       const input = args.join(' ').trim();
       if (!input) {
@@ -151,24 +155,47 @@ async function main() {
       }
 
       console.log('Processing user story, generating test artifacts...');
-      const artifacts = await generateTests(story, design, selectors);
-      const written = writeArtifacts(artifacts);
+      let artifacts = await generateTests(story, design, selectors);
+      let written = writeArtifacts(artifacts);
 
       console.log('\nFiles created:');
       for (const f of written) console.log(`  - ${f}`);
       console.log(`\nNotes:\n${artifacts.notes}`);
 
       if (verify) {
+        const scopeFiles = (w: string[]) => w.map((f) => f.split(' ')[0]).filter((f) => f.endsWith('.ts'));
         console.log('\nVerifying generated code (tsc)...');
-        const tsFiles = written.filter((f) => f.endsWith('.ts'));
-        const result = verifyTypeScript(tsFiles);
+        let result = verifyTypeScript(scopeFiles(written));
+
+        let round = 0;
+        const MAX_ROUNDS = 2;
+        while (!result.ok && fix && round < MAX_ROUNDS) {
+          round++;
+          console.log(`✗ ${result.errors.length} error(s); self-correcting (round ${round}/${MAX_ROUNDS})...`);
+          // Give the model the current source of the project files it must update.
+          const sources: { fileName: string; content: string }[] = [];
+          for (const dir of ['src/pages', 'src/fixtures']) {
+            const abs = path.join(process.cwd(), dir);
+            if (!fs.existsSync(abs)) continue;
+            for (const f of fs.readdirSync(abs)) {
+              if (f.endsWith('.ts') && !f.endsWith('.generated')) {
+                sources.push({ fileName: f, content: fs.readFileSync(path.join(abs, f), 'utf-8') });
+              }
+            }
+          }
+          artifacts = await correctArtifacts(story, artifacts, result.errors, sources, selectors);
+          written = writeArtifacts(artifacts, process.cwd(), { overwrite: true });
+          result = verifyTypeScript(scopeFiles(written));
+        }
+
         if (result.ok) {
-          console.log('✓ Generated code type-checks — ready to run.');
+          console.log(`✓ Generated code type-checks${round ? ` (after ${round} fix round(s))` : ''} — ready to run.`);
         } else {
-          console.log(`✗ ${result.errors.length} type error(s) — wiring needed before this runs:`);
+          console.log(`✗ ${result.errors.length} type error(s) remain — wiring needed before this runs:`);
           for (const e of result.errors) {
             console.log(`   ${path.basename(e.file)}:${e.line}  ${e.message}`);
           }
+          if (!fix) console.log('   Re-run with --fix to attempt automatic correction.');
         }
       }
 
