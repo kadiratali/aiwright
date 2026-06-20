@@ -3,6 +3,7 @@ import * as path from 'path';
 import { generateTests, writeArtifacts } from '../ai/testGenerator';
 import { designTests, writeDesignReport } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
+import { verifyTypeScript } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 
 const USAGE = `
@@ -25,6 +26,8 @@ Usage:
       (authoritative scope; no invented scenarios, no dropped ones).
       With --selectors, real selectors from an ai:inspect map are used verbatim
       instead of guessed/placeholder ones.
+      With --verify, runs tsc on the generated code and reports whether it
+      compiles (and exactly what wiring is missing if not).
 
   npm run ai:analyze [-- <report-path>]
       Analyzes the failures in the Cucumber JSON report.
@@ -110,8 +113,15 @@ async function main() {
         args.splice(i, 2);
         return value;
       };
+      const takeBool = (flag: string): boolean => {
+        const i = args.indexOf(flag);
+        if (i === -1) return false;
+        args.splice(i, 1);
+        return true;
+      };
       const designPath = takeFlag('--design');
       const selectorsPath = takeFlag('--selectors');
+      const verify = takeBool('--verify');
 
       const input = args.join(' ').trim();
       if (!input) {
@@ -147,6 +157,21 @@ async function main() {
       console.log('\nFiles created:');
       for (const f of written) console.log(`  - ${f}`);
       console.log(`\nNotes:\n${artifacts.notes}`);
+
+      if (verify) {
+        console.log('\nVerifying generated code (tsc)...');
+        const tsFiles = written.filter((f) => f.endsWith('.ts'));
+        const result = verifyTypeScript(tsFiles);
+        if (result.ok) {
+          console.log('✓ Generated code type-checks — ready to run.');
+        } else {
+          console.log(`✗ ${result.errors.length} type error(s) — wiring needed before this runs:`);
+          for (const e of result.errors) {
+            console.log(`   ${path.basename(e.file)}:${e.line}  ${e.message}`);
+          }
+        }
+      }
+
       console.log('\nTo run: npm test');
       break;
     }
