@@ -50,3 +50,33 @@ export function verifyTypeScript(scopeFiles: string[] = [], rootDir = process.cw
 
   return { ok: errors.length === 0, errors, totalErrors: all.length };
 }
+
+export interface RunResult {
+  passed: number;
+  failed: number;
+  ok: boolean;
+  raw: string;
+}
+
+function bin(name: string, rootDir: string): string {
+  const p = path.join(rootDir, 'node_modules', '.bin', name);
+  return fs.existsSync(p) ? p : name;
+}
+
+/** Compiles the features (bddgen) and runs the scenarios matching `grep`, returning the tally. */
+export function runFeature(grep: string, rootDir = process.cwd()): RunResult {
+  let raw = '';
+  const run = (cmd: string, args: string[]) => {
+    try {
+      raw += execFileSync(bin(cmd, rootDir), args, { cwd: rootDir, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+    } catch (e: any) {
+      raw += `${e.stdout ?? ''}${e.stderr ?? ''}`;
+    }
+  };
+  run('bddgen', []);
+  run('playwright', ['test', '--grep', grep, '--reporter=line']);
+
+  const passed = Number((raw.match(/(\d+) passed/) ?? [])[1] ?? 0);
+  const failed = Number((raw.match(/(\d+) failed/) ?? [])[1] ?? 0);
+  return { passed, failed, ok: failed === 0 && passed > 0, raw };
+}

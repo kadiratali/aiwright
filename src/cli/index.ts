@@ -3,7 +3,7 @@ import * as path from 'path';
 import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGenerator';
 import { designTests, writeDesignReport } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
-import { verifyTypeScript } from '../ai/verifier';
+import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 
 const USAGE = `
@@ -31,6 +31,8 @@ Usage:
       With --fix, also feeds any compile errors back to the model to
       self-correct (up to 2 rounds), merging new members into the existing
       page objects (original backed up as .bak).
+      With --run, once the code compiles, runs the generated scenarios and
+      reports how many passed/failed (closes the pass loop, not just compile).
 
   npm run ai:analyze [-- <report-path>]
       Analyzes the failures in the Cucumber JSON report.
@@ -125,7 +127,8 @@ async function main() {
       const designPath = takeFlag('--design');
       const selectorsPath = takeFlag('--selectors');
       const fix = takeBool('--fix');
-      const verify = takeBool('--verify') || fix;
+      const run = takeBool('--run');
+      const verify = takeBool('--verify') || fix || run;
 
       const input = args.join(' ').trim();
       if (!input) {
@@ -196,6 +199,18 @@ async function main() {
             console.log(`   ${path.basename(e.file)}:${e.line}  ${e.message}`);
           }
           if (!fix) console.log('   Re-run with --fix to attempt automatic correction.');
+        }
+
+        if (run && result.ok) {
+          const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim();
+          if (title) {
+            console.log(`\nRunning the generated scenarios ("${title}")...`);
+            const r = runFeature(title);
+            if (r.ok) console.log(`✓ ${r.passed} scenario(s) passed.`);
+            else console.log(`✗ ${r.passed} passed, ${r.failed} failed — see the trace under reports/test-results.`);
+          }
+        } else if (run) {
+          console.log('   Skipping the test run — code does not compile yet.');
         }
       }
 
