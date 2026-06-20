@@ -36,3 +36,69 @@ jobs:
 
       - name: Redaction check
         run: npm run verify:redaction
+
+  # Real E2E against a self-hosted copy of the app under test, so there is no Cloudflare
+  # challenge. The Toolshop app runs from its official Docker images; the dev UI talks to
+  # the local API, and we point TARGET_URL at the local instance.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: ci/docker-compose.toolshop.yml
+      TARGET_URL: http://localhost:4200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the Toolshop app
+        run: docker compose -f "$COMPOSE" up -d --pull always
+
+      - name: Seed the database
+        run: |
+          # Retry the seed until the DB accepts connections (more robust than guessing a
+          # ping command); migrate:fresh sets up the schema + demo products and users.
+          for i in $(seq 1 40); do
+            docker compose -f "$COMPOSE" exec -T laravel-api php artisan migrate:fresh --seed --force && break
+            echo "DB not ready, retrying seed ($i)…"; sleep 5
+          done
+
+      - name: Wait for the app to be ready
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8091/products >/dev/null && { echo "API up"; break; }
+            echo "waiting for API ($i)…"; sleep 5
+          done
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:4200 >/dev/null && { echo "UI up"; break; }
+            echo "waiting for UI ($i)…"; sleep 5
+          done
+
+      - name: Run BDD tests (self-hosted app)
+        run: npm test
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose -f "$COMPOSE" logs --tail=80
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-reports
+          path: |
+            reports/cucumber-report.html
+            reports/cucumber-report.json
+          retention-days: 14
+          if-no-files-found: ignore

@@ -50,10 +50,11 @@ HEADLESS=false npm test   # watch the browser
 npm run report            # open the Cucumber HTML report
 ```
 
-> **CI note:** the suite targets a live third-party app behind a Cloudflare bot challenge,
-> which blocks GitHub's runner IPs — so the browser tests run locally, not in CI. CI gates
-> on the offline checks (type-check, redaction). To run the E2E in CI, self-host the app
-> under test (it ships as a Docker image) and set `TARGET_URL` to the local instance.
+> **CI note:** `npm test` locally targets the live app (`https://practicesoftwaretesting.com`).
+> That site sits behind a Cloudflare bot challenge that blocks GitHub's runner IPs, so CI
+> instead **self-hosts the app** from its official Docker images
+> (`ci/docker-compose.toolshop.yml`) and points `TARGET_URL` at the local instance — real
+> E2E, no Cloudflare. CI also runs offline gates (type-check, redaction).
 
 Reports are written under `reports/`: the Cucumber HTML/JSON report. Screenshots and traces
 are collected automatically for failed scenarios (`reports/test-results/`).
