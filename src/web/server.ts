@@ -1,11 +1,30 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
-import { generateTests, writeArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
+import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
+import { verifyTypeScript } from '../ai/verifier';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
+
+const tsScope = (written: string[]) => written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
+
+/** Reads the project source files the self-correction step may need to update. */
+function projectSources(): { fileName: string; content: string }[] {
+  const out: { fileName: string; content: string }[] = [];
+  for (const dir of ['src/pages', 'src/fixtures']) {
+    const abs = path.join(process.cwd(), dir);
+    if (!fs.existsSync(abs)) continue;
+    for (const f of fs.readdirSync(abs)) {
+      if (f.endsWith('.ts') && !f.endsWith('.generated')) {
+        out.push({ fileName: f, content: fs.readFileSync(path.join(abs, f), 'utf-8') });
+      }
+    }
+  }
+  return out;
+}
 
 /** Wraps an async handler so rejections return a clean JSON error. */
 const handler =
@@ -54,7 +73,8 @@ app.post(
   })
 );
 
-// Write previewed artifacts into the project (never overwrites existing files).
+// Write previewed artifacts into the project (never overwrites existing files), then
+// type-check them so the UI shows whether the generated code compiles.
 app.post(
   '/api/save',
   handler(async (req, res) => {
@@ -64,7 +84,34 @@ app.post(
       return;
     }
     const written = writeArtifacts(artifacts);
-    res.json({ written });
+    const verify = verifyTypeScript(tsScope(written));
+    res.json({ written, verify: { ok: verify.ok, errors: verify.errors } });
+  })
+);
+
+// Self-correct already-saved artifacts until they compile (merging new members into the
+// existing page objects, with a .bak backup). Up to 2 rounds.
+app.post(
+  '/api/fix',
+  handler(async (req, res) => {
+    const story = String(req.body?.story ?? '').trim();
+    let artifacts = req.body?.artifacts as GeneratedArtifacts | undefined;
+    const selectors = req.body?.selectors as string | undefined;
+    if (!story || !artifacts) {
+      res.status(400).json({ error: 'Provide the story and the artifacts to fix.' });
+      return;
+    }
+
+    let written = writeArtifacts(artifacts, process.cwd(), { overwrite: true });
+    let result = verifyTypeScript(tsScope(written));
+    let rounds = 0;
+    while (!result.ok && rounds < 2) {
+      rounds++;
+      artifacts = await correctArtifacts(story, artifacts, result.errors, projectSources(), selectors);
+      written = writeArtifacts(artifacts, process.cwd(), { overwrite: true });
+      result = verifyTypeScript(tsScope(written));
+    }
+    res.json({ artifacts, written, rounds, verify: { ok: result.ok, errors: result.errors } });
   })
 );
 

@@ -54,6 +54,10 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .hint { color: var(--muted); font-size: 12px; opacity: .8; }
     .saved { color: var(--ok); font-size: 13px; margin-top: 12px; white-space: pre-line; }
+    .verify-ok { color: var(--ok); font-size: 13px; margin-top: 12px; font-weight: 600; }
+    .verify-bad { color: var(--bad); font-size: 13px; margin-top: 12px; font-weight: 600; }
+    .verify-bad .e { color: var(--muted); font-weight: 400; font-family: ui-monospace, Menlo, monospace;
+      font-size: 12px; margin: 3px 0 0 14px; }
   </style>
 </head>
 <body>
@@ -93,6 +97,11 @@
         <span id="saveStatus" class="spin"></span>
       </div>
       <div id="saved" class="saved"></div>
+      <div id="verifyResult"></div>
+      <div class="row" id="fixRow" style="display:none;">
+        <button id="fixBtn" class="ghost">Auto-fix wiring</button>
+        <span id="fixStatus" class="spin"></span>
+      </div>
       <div id="saveErr" class="err"></div>
     </div>
   </div>
@@ -204,12 +213,45 @@
       $('artifacts').innerHTML = html;
     }
 
+    function renderVerify(verify) {
+      const el = $('verifyResult');
+      if (!verify) { el.innerHTML = ''; $('fixRow').style.display = 'none'; return; }
+      if (verify.ok) {
+        el.className = 'verify-ok';
+        el.textContent = '✓ Generated code type-checks — ready to run.';
+        $('fixRow').style.display = 'none';
+      } else {
+        el.className = 'verify-bad';
+        const lines = verify.errors.map((e) =>
+          `<div class="e">${esc((e.file.split('/').pop()) + ':' + e.line + '  ' + e.message)}</div>`).join('');
+        el.innerHTML = `✗ ${verify.errors.length} type error(s) — wiring needed:` + lines;
+        $('fixRow').style.display = 'flex';
+      }
+    }
+
     $('saveBtn').onclick = async () => {
-      $('saveErr').textContent = ''; $('saved').textContent = '';
-      const stop = startBusy($('saveStatus'), 'Saving…', $('saveBtn'));
+      $('saveErr').textContent = ''; $('saved').textContent = ''; renderVerify(null);
+      const stop = startBusy($('saveStatus'), 'Saving & type-checking…', $('saveBtn'));
       try {
-        const { written } = await postJSON('/api/save', { artifacts: currentArtifacts });
+        const { written, verify } = await postJSON('/api/save', { artifacts: currentArtifacts });
         $('saved').textContent = 'Saved:\n' + written.join('\n');
+        renderVerify(verify);
+      } catch (e) {
+        $('saveErr').textContent = e.message;
+      } finally {
+        stop();
+      }
+    };
+
+    $('fixBtn').onclick = async () => {
+      $('saveErr').textContent = '';
+      const stop = startBusy($('fixStatus'), 'Self-correcting until it compiles…', $('fixBtn'));
+      try {
+        const data = await postJSON('/api/fix', { story: $('story').value.trim(), artifacts: currentArtifacts });
+        currentArtifacts = data.artifacts;
+        renderArtifacts(currentArtifacts);
+        renderVerify(data.verify);
+        $('saved').textContent = (data.rounds ? `Fixed in ${data.rounds} round(s). ` : '') + 'Updated:\n' + data.written.join('\n');
       } catch (e) {
         $('saveErr').textContent = e.message;
       } finally {
