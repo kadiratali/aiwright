@@ -26,6 +26,24 @@ function projectSources(): { fileName: string; content: string }[] {
   return out;
 }
 
+// Minimum security for a local tool that holds an API key and writes files:
+// - only accept a localhost Host (blocks DNS-rebinding / cross-origin browser calls),
+// - optionally require a shared token (set AIWRIGHT_TOKEN to enable).
+// Combined with binding to 127.0.0.1, this keeps the endpoints off the network.
+const TOKEN = process.env.AIWRIGHT_TOKEN;
+app.use('/api', (req, res, next) => {
+  const host = (req.headers.host ?? '').split(':')[0];
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(host)) {
+    res.status(403).json({ error: 'Forbidden host.' });
+    return;
+  }
+  if (TOKEN && req.headers['x-aiwright-token'] !== TOKEN) {
+    res.status(401).json({ error: 'Missing or invalid token.' });
+    return;
+  }
+  next();
+});
+
 /** Wraps an async handler so rejections return a clean JSON error. */
 const handler =
   (fn: (req: Request, res: Response) => Promise<void>) => async (req: Request, res: Response) => {
@@ -116,6 +134,9 @@ app.post(
 );
 
 const PORT = Number(process.env.PORT ?? 5173);
-app.listen(PORT, () => {
+// Bind to loopback only so the endpoints (which hold the API key and write files)
+// are never exposed on the network.
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`aiwright web UI running at http://localhost:${PORT}`);
+  if (TOKEN) console.log('Token auth enabled (AIWRIGHT_TOKEN set).');
 });

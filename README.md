@@ -127,9 +127,11 @@ into the project. The API key stays server-side.
 npm run web          # http://localhost:5173
 ```
 
-Three endpoints (`/api/design`, `/api/generate`, `/api/save`) reuse the CLI functions
+Endpoints (`/api/design`, `/api/generate`, `/api/save`, `/api/fix`) reuse the CLI functions
 directly; the curated scenario subset becomes the authoritative scope, exactly like
-`ai:generate --design`.
+`ai:generate --design`. Saving also type-checks the result, and **Auto-fix** runs the
+self-correction loop. The server binds to `127.0.0.1`, rejects non-localhost `Host`
+headers, and can require a shared token (`AIWRIGHT_TOKEN`).
 
 ### AI failure analysis
 
@@ -206,6 +208,13 @@ these files cannot be read by the LLM. Three layers of protection:
 
 Redaction regression check: `npm run verify:redaction`. Detailed policy:
 `fixtures/sensitive/README.md`.
+
+## Quality scorecard
+
+`npm run eval` scores the pipeline (redaction, project surface, and the inspector against
+the live login page); `npm run eval -- --full` also checks that design produces structured
+output and that generation compiles. It exits non-zero on failure, so it can gate CI —
+giving a number to "how well does it work" instead of a vibe.
 
 ### Conventions
 
