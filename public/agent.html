@@ -4,15 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>aiwright — QA Agent</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <style>
     :root {
       --bg: #0f1115; --panel: #181b22; --line: #2a2f3a; --fg: #e6e8eb;
       --muted: #9aa3b2; --accent: #6ea8fe; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--fg);
+    body { margin: 0; color: var(--fg);
+      background:
+        radial-gradient(820px 360px at 50% -140px, rgba(110,168,254,0.16), transparent 70%),
+        radial-gradient(620px 300px at 88% -60px, rgba(45,212,191,0.10), transparent 70%),
+        var(--bg);
       font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 80px; }
+    /* brand header */
+    .brand { display: flex; align-items: center; gap: 14px; margin: 6px 0 26px; }
+    .brand .logo { flex: none; filter: drop-shadow(0 6px 16px rgba(110,168,254,.32)); }
+    .brand-name { font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
+      display: flex; align-items: center; gap: 10px; }
+    .brand-chip { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .09em;
+      color: var(--accent); border: 1px solid rgba(110,168,254,.35); border-radius: 20px;
+      padding: 2px 9px; background: rgba(110,168,254,.08); }
+    .brand-tag { color: var(--muted); font-size: 13.5px; margin-top: 3px; max-width: 660px; }
+    .brand-tag a { color: var(--accent); text-decoration: none; }
+    .brand-tag a:hover { text-decoration: underline; }
     h1 { font-size: 22px; margin: 0 0 4px; }
     .sub { color: var(--muted); margin: 0 0 24px; }
     .sub a { color: var(--accent); text-decoration: none; }
@@ -48,10 +64,24 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>aiwright — QA Agent</h1>
-    <p class="sub">Give it a story; it plans and runs the pipeline itself, pausing here for your
-      OK on side-effecting steps and stopping on a real regression. ·
-      <a href="/index.html">Step-by-step studio →</a></p>
+    <header class="brand">
+      <svg class="logo" width="46" height="46" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="aiwright">
+        <defs>
+          <linearGradient id="awg" x1="4" y1="4" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#6ea8fe"/><stop offset="1" stop-color="#2dd4bf"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="36" height="36" rx="11" fill="url(#awg)"/>
+        <path d="M13 22.5l5.2 5.2L27 17.5" stroke="#091018" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M30.5 12.2l.95 2.45 2.45.95-2.45.95-.95 2.45-.95-2.45-2.45-.95 2.45-.95z" fill="#091018"/>
+      </svg>
+      <div>
+        <div class="brand-name">aiwright <span class="brand-chip">QA Agent</span></div>
+        <div class="brand-tag">Give it a story; it plans and runs the pipeline itself — pausing for your OK
+          on side-effecting steps and stopping on a real regression. ·
+          <a href="/index.html">Step-by-step studio →</a></div>
+      </div>
+    </header>
 
     <div class="panel" id="startPanel">
       <h2>User story</h2>
