@@ -64,7 +64,27 @@ fixture-registration snippet for src/fixtures/index.ts (the extend entry and the
 in the "notes" field so a human can wire it in. If the steps need new test data, include
 the JSON to add under fixtures/ in "notes" as well. If selectors for the application are
 unknown, derive them from the story if provided, otherwise use clearly marked placeholder
-selectors with TODO comments.`;
+selectors with TODO comments.
+
+Scenario depth - write thorough scenarios, not 2-line stubs:
+- Set the meaningful Given context and the specific test data each scenario needs; do not
+  assume a bare starting state when a precondition matters.
+- A Then must verify the real, observable CONSEQUENCES of the action - usually MORE THAN
+  ONE assertion. After a state change, assert what the user should now see AND what should
+  NOT be there. E.g. a successful login: the account menu is shown, the landing page/area
+  is correct, AND no error is shown; a failed login: the specific error message is shown,
+  the user is still unauthenticated, AND no navigation happened.
+- Negative/edge scenarios: assert the exact error/validation message AND that the system
+  did NOT perform the action (no navigation, no state change) - not just that "an error
+  appeared".
+- Use And steps to layer several concrete checks rather than collapsing to one weak
+  assertion.
+- Stay DECLARATIVE: each step states intent or an outcome ("the user logs in as the
+  {string} user", "the cart shows 1 item"). NEVER imperative UI mechanics ("click the
+  email field, type ..., click submit") - that is a BDD anti-pattern. Depth belongs in the
+  assertions and data, not in click-by-click steps.
+- Reuse one well-named step across scenarios; richer verification means more meaningful
+  Then/And assertions, not more brittle low-level steps.`;
 
 export const DESIGNER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
@@ -82,7 +102,11 @@ Produce:
   empty/large/duplicate inputs, error recovery, idempotency.
 - Test scenarios as IDEAS (titles + rationale), not steps. Cover happy path, negative
   cases, and edge/boundary cases the acceptance criteria only imply. Tag and prioritise
-  each (P0 = must, P1 = should, P2 = nice-to-have) so a human can cut the list.
+  each (P0 = must, P1 = should, P2 = nice-to-have) so a human can cut the list. In each
+  rationale, name the KEY OBSERVABLE OUTCOMES the scenario must verify - what the user
+  should see after the action AND what should NOT happen (e.g. error shown + still
+  unauthenticated + no navigation) - so generation has enough to write rich, multi-
+  assertion checks. This is the "what to verify", still not Gherkin steps.
 - Open questions: ambiguous or missing requirements that a human must clarify before
   testing makes sense. This is where you challenge the story.
 - Assumptions you had to make to design these tests.
