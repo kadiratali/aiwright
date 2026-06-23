@@ -1,9 +1,12 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
 import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
 import { verifyTypeScript } from '../ai/verifier';
+import { runAgent } from '../agent/orchestrator';
+import { AgentIO, AgentEvent } from '../agent/io';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -133,10 +136,128 @@ app.post(
   })
 );
 
+// ---- Agent run sessions (Phase 3: live run + human approval over HTTP) ------
+// The orchestrator drives itself; the browser follows over SSE and answers the gates.
+interface RunSession {
+  id: string;
+  events: AgentEvent[]; // buffer so a late/refreshed client can replay
+  clients: Response[]; // open SSE connections
+  pending?: { gate: 'approve' | 'escalate'; resolve: (value: string) => void };
+  finished: boolean;
+}
+
+const sessions = new Map<string, RunSession>();
+
+function emitToSession(s: RunSession, e: AgentEvent): void {
+  s.events.push(e);
+  const frame = `data: ${JSON.stringify(e)}\n\n`;
+  for (const c of s.clients) c.write(frame);
+  if (e.type === 'done') {
+    s.finished = true;
+    for (const c of s.clients) c.end();
+    s.clients = [];
+  }
+}
+
+// Web IO: progress is broadcast over SSE; the approval/escalation gates park a promise that
+// the /decision endpoint resolves when the human clicks.
+function webIO(s: RunSession): AgentIO {
+  return {
+    emit: (e) => emitToSession(s, e),
+    approve: () =>
+      new Promise((resolve) => {
+        s.pending = { gate: 'approve', resolve: (v) => resolve(v as 'yes' | 'no' | 'abort') };
+      }),
+    escalate: () =>
+      new Promise((resolve) => {
+        s.pending = { gate: 'escalate', resolve: (v) => resolve(v as 'continue' | 'halt') };
+      })
+  };
+}
+
+// Start an agent run in the background; the browser follows it over SSE.
+app.post(
+  '/api/agent/start',
+  handler(async (req, res) => {
+    const story = String(req.body?.story ?? '').trim();
+    if (!story) {
+      res.status(400).json({ error: 'Provide a user story.' });
+      return;
+    }
+    const id = crypto.randomUUID();
+    const session: RunSession = { id, events: [], clients: [], finished: false };
+    sessions.set(id, session);
+
+    // Fire and forget — progress + gates flow through webIO/SSE, not this HTTP response.
+    runAgent(
+      'Build and verify a reviewed BDD test suite for the given user story.',
+      story,
+      process.cwd(),
+      {},
+      webIO(session)
+    ).catch((err) => {
+      emitToSession(session, { type: 'error', tool: 'design', message: err?.message ?? String(err) });
+      emitToSession(session, { type: 'done', outcome: 'aborted', statePath: '' });
+    });
+
+    res.json({ runId: id });
+  })
+);
+
+// Live event stream for a run (Server-Sent Events).
+app.get('/api/agent/:id/events', (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (!s) {
+    res.status(404).json({ error: 'Unknown run.' });
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  });
+  for (const e of s.events) res.write(`data: ${JSON.stringify(e)}\n\n`); // replay history
+  if (s.finished) {
+    res.end();
+    return;
+  }
+  s.clients.push(res);
+  req.on('close', () => {
+    s.clients = s.clients.filter((c) => c !== res);
+  });
+});
+
+// Human decision for the gate the run is currently waiting on.
+app.post(
+  '/api/agent/:id/decision',
+  handler(async (req, res) => {
+    const s = sessions.get(String(req.params.id));
+    if (!s) {
+      res.status(404).json({ error: 'Unknown run.' });
+      return;
+    }
+    if (!s.pending) {
+      res.status(409).json({ error: 'The run is not waiting for a decision.' });
+      return;
+    }
+    const value = String(req.body?.value ?? '');
+    const valid = s.pending.gate === 'approve' ? ['yes', 'no', 'abort'] : ['continue', 'halt'];
+    if (!valid.includes(value)) {
+      res.status(400).json({ error: `Invalid decision for ${s.pending.gate}: ${value}` });
+      return;
+    }
+    const { resolve } = s.pending;
+    s.pending = undefined;
+    resolve(value);
+    res.json({ ok: true });
+  })
+);
+
 const PORT = Number(process.env.PORT ?? 5173);
 // Bind to loopback only so the endpoints (which hold the API key and write files)
 // are never exposed on the network.
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`aiwright web UI running at http://localhost:${PORT}`);
+  console.log(`  QA agent (live run + approval): http://localhost:${PORT}/agent.html`);
   if (TOKEN) console.log('Token auth enabled (AIWRIGHT_TOKEN set).');
 });
