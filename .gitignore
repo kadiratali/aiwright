@@ -6,6 +6,9 @@ reports/
 .idea/
 .DS_Store
 
+# Backups written by the generator/heal when overwriting artifacts.
+*.bak
+
 # Hassas test verisi - gercek PII repoya GIRMEZ.
 # Sadece *.example.json ve README izinli.
 fixtures/sensitive/*

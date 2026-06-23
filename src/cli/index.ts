@@ -5,11 +5,18 @@ import { designTests, writeDesignReport } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
+import { runAgent } from '../agent/orchestrator';
 
 const USAGE = `
 AI QA Agent CLI
 
 Usage:
+  npm run ai:agent -- <user-story.txt | "user story text"> [--auto]
+      Runs the orchestrator: from the story, the agent plans and sequences the
+      tools (design -> inspect -> generate -> verify -> run -> analyze) on its own,
+      pausing for a human OK before side-effecting steps (inspect/generate/run).
+      With --auto, confirmation gates are skipped (non-interactive / CI).
+
   npm run ai:design -- <user-story.txt | "user story text">
       Produces a "what to test" design from a user story: risk areas, scenario
       ideas, open questions, out-of-scope calls. Generates no code - for a human to review.
@@ -43,6 +50,26 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
 
   switch (command) {
+    case 'agent': {
+      const args = [...rest];
+      const ai = args.indexOf('--auto');
+      const auto = ai !== -1;
+      if (auto) args.splice(ai, 1);
+
+      const input = args.join(' ').trim();
+      if (!input) {
+        console.error('Error: provide a user story file or text.\n' + USAGE);
+        process.exit(1);
+      }
+      const story = fs.existsSync(input) ? fs.readFileSync(input, 'utf-8') : input;
+
+      console.log(`Starting QA agent${auto ? ' (--auto: no confirmation gates)' : ''}...`);
+      await runAgent('Build and verify a reviewed BDD test suite for the given user story.', story, process.cwd(), {
+        auto
+      });
+      break;
+    }
+
     case 'design': {
       const input = rest.join(' ').trim();
       if (!input) {

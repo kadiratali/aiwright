@@ -10,6 +10,7 @@
     "test:ui": "bddgen && playwright test --ui",
     "report": "open reports/cucumber-report.html",
     "web": "ts-node src/web/server.ts",
+    "ai:agent": "ts-node src/cli/index.ts agent",
     "ai:design": "ts-node src/cli/index.ts design",
     "ai:inspect": "ts-node src/cli/index.ts inspect",
     "ai:generate": "ts-node src/cli/index.ts generate",

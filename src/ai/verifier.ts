@@ -74,7 +74,10 @@ export function runFeature(grep: string, rootDir = process.cwd()): RunResult {
     }
   };
   run('bddgen', []);
-  run('playwright', ['test', '--grep', grep, '--reporter=line']);
+  // No --reporter override: that would replace the config reporters and skip the cucumber
+  // JSON (reports/cucumber-report.json) that `analyze` reads. Use the configured reporters
+  // (list still prints the "N passed/failed" summary we parse below) so the report is fresh.
+  run('playwright', ['test', '--grep', grep]);
 
   const passed = Number((raw.match(/(\d+) passed/) ?? [])[1] ?? 0);
   const failed = Number((raw.match(/(\d+) failed/) ?? [])[1] ?? 0);
