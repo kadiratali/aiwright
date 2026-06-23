@@ -51,6 +51,29 @@ export async function resolveEscalation(
 }
 
 /**
+ * Moves the conversation cache breakpoint to the most recent message. Clears any previous
+ * message breakpoint first so we stay within the 4-breakpoints-per-request limit (one here +
+ * one on the system block). A string content turn is normalised to a text block so the
+ * breakpoint has somewhere to attach.
+ */
+function slideCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
+  for (const m of messages) {
+    if (Array.isArray(m.content)) {
+      for (const block of m.content) delete (block as { cache_control?: unknown }).cache_control;
+    }
+  }
+  const last = messages[messages.length - 1];
+  if (!last) return;
+  if (typeof last.content === 'string') {
+    last.content = [{ type: 'text', text: last.content, cache_control: { type: 'ephemeral' } }];
+  } else if (last.content.length > 0) {
+    (last.content[last.content.length - 1] as { cache_control?: unknown }).cache_control = {
+      type: 'ephemeral'
+    };
+  }
+}
+
+/**
  * The plan → act → observe loop. Hands the goal + tools to the model, runs each tool it
  * picks (pausing for a human OK on side-effecting steps), feeds the result back, and repeats
  * until the model is done or the turn budget is spent.
@@ -70,10 +93,15 @@ export async function runAgent(
   ];
 
   for (let turn = 1; turn <= maxTurns; turn++) {
+    // Prompt caching: the system prompt + tool schemas repeat verbatim every turn, and the
+    // message history only grows. Cache the stable tools+system prefix (breakpoint on the
+    // system block) and slide one breakpoint onto the latest message so the growing
+    // conversation prefix is read from cache (~0.1x) instead of re-billed each turn.
+    slideCacheBreakpoint(messages);
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 8000,
-      system: AGENT_SYSTEM,
+      system: [{ type: 'text', text: AGENT_SYSTEM, cache_control: { type: 'ephemeral' } }],
       tools: TOOL_DEFS,
       messages
     });
