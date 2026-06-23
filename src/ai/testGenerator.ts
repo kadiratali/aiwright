@@ -60,7 +60,8 @@ const OUTPUT_SCHEMA = {
 export async function generateTests(
   userStory: string,
   approvedDesign?: string,
-  selectorMapJson?: string
+  selectorMapJson?: string,
+  maxScenarios?: number
 ): Promise<GeneratedArtifacts> {
   // Before going to the LLM: load known secret values + redact the story (and the
   // human-edited design / selector map, if any).
@@ -81,6 +82,14 @@ export async function generateTests(
   if (selectorMapJson?.trim()) {
     const safeMap = redact(selectorMapJson);
     content += `\n\n${SELECTORS_INSTRUCTION}\n\nSELECTOR MAP:\n\n${safeMap}`;
+  }
+
+  // Quick-trial cap for the story-only path. When a design is supplied it already fixes the
+  // scope, so the cap only applies here (don't override a curated design's scenario count).
+  if (maxScenarios && maxScenarios > 0 && !approvedDesign?.trim()) {
+    content +=
+      `\n\nQUICK TRIAL: generate AT MOST ${maxScenarios} scenario(s) — the highest-value ones ` +
+      `(core happy path first, then the most important negative case). Keep it minimal so the run is fast.`;
   }
 
   return runGenerator(content);

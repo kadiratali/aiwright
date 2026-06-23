@@ -8,6 +8,8 @@ reports/
 
 # Backups written by the generator/heal when overwriting artifacts.
 *.bak
+# Side-by-side output when generate would otherwise overwrite an existing file.
+*.generated
 
 # Hassas test verisi - gercek PII repoya GIRMEZ.
 # Sadece *.example.json ve README izinli.

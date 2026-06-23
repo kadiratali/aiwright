@@ -97,12 +97,21 @@ const DESIGN_SCHEMA = {
   additionalProperties: false
 } as const;
 
-export async function designTests(userStory: string): Promise<TestDesign> {
+export async function designTests(userStory: string, maxScenarios?: number): Promise<TestDesign> {
   const client = getClient();
 
   // Before going to the LLM: load known secret values + redact the story.
   registerAllSensitive();
   const safeStory = redact(userStory);
+
+  let content = `Produce a test design for this user story:\n\n${safeStory}`;
+  if (maxScenarios && maxScenarios > 0) {
+    // Quick-trial mode: keep the design (and therefore generation) small and fast.
+    content +=
+      `\n\nQUICK TRIAL: propose AT MOST ${maxScenarios} scenario idea(s) — only the highest-value ones ` +
+      `(the core happy path first, then the most important negative case). Keep risk areas and open ` +
+      `questions brief.`;
+  }
 
   const stream = client.messages.stream({
     model: MODEL,
@@ -112,12 +121,7 @@ export async function designTests(userStory: string): Promise<TestDesign> {
     output_config: {
       format: { type: 'json_schema', schema: DESIGN_SCHEMA }
     },
-    messages: [
-      {
-        role: 'user',
-        content: `Produce a test design for this user story:\n\n${safeStory}`
-      }
-    ]
+    messages: [{ role: 'user', content }]
   });
 
   stream.on('text', () => process.stdout.write('.'));
@@ -133,6 +137,20 @@ export async function designTests(userStory: string): Promise<TestDesign> {
     throw new Error('No text response received from the model.');
   }
   return JSON.parse(textBlock.text) as TestDesign;
+}
+
+const PRIORITY_ORDER: Record<ScenarioIdea['priority'], number> = { P0: 0, P1: 1, P2: 2 };
+
+/**
+ * Caps a design to its `max` highest-priority scenarios (P0 before P1 before P2). A safety net
+ * for quick-trial runs: even if the model proposes more than asked, generation stays small.
+ */
+export function capScenarios(design: TestDesign, max: number): TestDesign {
+  if (!max || max <= 0 || design.scenarios.length <= max) return design;
+  const scenarios = [...design.scenarios]
+    .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
+    .slice(0, max);
+  return { ...design, scenarios };
 }
 
 const SEVERITY_ICON: Record<RiskArea['severity'], string> = {

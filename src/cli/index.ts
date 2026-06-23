@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGenerator';
-import { designTests, writeDesignReport } from '../ai/testDesigner';
+import { designTests, writeDesignReport, capScenarios } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
@@ -17,9 +17,10 @@ Usage:
       pausing for a human OK before side-effecting steps (inspect/generate/run).
       With --auto, confirmation gates are skipped (non-interactive / CI).
 
-  npm run ai:design -- <user-story.txt | "user story text">
+  npm run ai:design -- <user-story.txt | "user story text"> [--max <N>]
       Produces a "what to test" design from a user story: risk areas, scenario
       ideas, open questions, out-of-scope calls. Generates no code - for a human to review.
+      With --max <N>, a quick trial: only the N highest-priority scenarios are kept.
 
   npm run ai:inspect -- <url|path> [--login <userKey>]
       Opens the real page and extracts a stability-ranked selector map from the
@@ -27,8 +28,10 @@ Usage:
       first via the project's LoginPage. Output: reports/selector-map-<slug>.json.
 
   npm run ai:generate -- <user-story.txt | "user story text">
-                        [--design <test-design.md>] [--selectors <selector-map.json>]
+                        [--design <test-design.md>] [--selectors <selector-map.json>] [--max <N>]
       Generates feature + step definitions + page objects from a user story.
+      With --max <N> (and no --design), a quick trial: at most N scenarios are
+      generated, so a first run is small and fast.
       With --design, only the scenarios in the human-approved design are generated
       (authoritative scope; no invented scenarios, no dropped ones).
       With --selectors, real selectors from an ai:inspect map are used verbatim
@@ -45,6 +48,19 @@ Usage:
       Analyzes the failures in the Cucumber JSON report.
       Default report: reports/cucumber-report.json
 `;
+
+/** Parses an optional `--max <N>` flag (quick-trial scenario cap) out of args, in place. */
+function takeMaxFlag(args: string[]): number | undefined {
+  const i = args.indexOf('--max');
+  if (i === -1) return undefined;
+  const n = Number(args[i + 1]);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error('Error: --max needs a positive integer (e.g. --max 2).\n' + USAGE);
+    process.exit(1);
+  }
+  args.splice(i, 2);
+  return n;
+}
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -71,15 +87,20 @@ async function main() {
     }
 
     case 'design': {
-      const input = rest.join(' ').trim();
+      const args = [...rest];
+      const maxScenarios = takeMaxFlag(args);
+      const input = args.join(' ').trim();
       if (!input) {
         console.error('Error: provide a user story file or text.\n' + USAGE);
         process.exit(1);
       }
       const story = fs.existsSync(input) ? fs.readFileSync(input, 'utf-8') : input;
 
-      console.log('Processing user story, producing test design...');
-      const design = await designTests(story);
+      console.log(
+        `Processing user story, producing test design${maxScenarios ? ` (quick: ≤${maxScenarios} scenarios)` : ''}...`
+      );
+      let design = await designTests(story, maxScenarios);
+      if (maxScenarios) design = capScenarios(design, maxScenarios);
       const reportFile = writeDesignReport(design);
 
       console.log(`\n${design.title}`);
@@ -151,6 +172,7 @@ async function main() {
         args.splice(i, 1);
         return true;
       };
+      const maxScenarios = takeMaxFlag(args);
       const designPath = takeFlag('--design');
       const selectorsPath = takeFlag('--selectors');
       const fix = takeBool('--fix');
@@ -184,8 +206,10 @@ async function main() {
         console.log(`Using selector map: ${selectorsPath}`);
       }
 
-      console.log('Processing user story, generating test artifacts...');
-      let artifacts = await generateTests(story, design, selectors);
+      console.log(
+        `Processing user story, generating test artifacts${maxScenarios && !design ? ` (quick: ≤${maxScenarios} scenarios)` : ''}...`
+      );
+      let artifacts = await generateTests(story, design, selectors, maxScenarios);
       let written = writeArtifacts(artifacts);
 
       console.log('\nFiles created:');
