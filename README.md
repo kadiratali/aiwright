@@ -50,11 +50,10 @@ HEADLESS=false npm test   # watch the browser
 npm run report            # open the Cucumber HTML report
 ```
 
-> **CI note:** `npm test` locally targets the live app (`https://practicesoftwaretesting.com`).
-> That site sits behind a Cloudflare bot challenge that blocks GitHub's runner IPs, so CI
-> instead **self-hosts the app** from its official Docker images
-> (`ci/docker-compose.toolshop.yml`) and points `TARGET_URL` at the local instance — real
-> E2E, no Cloudflare. CI also runs offline gates (type-check, redaction).
+> **CI note:** `npm test` locally targets the live app (`https://getmobil.com`). Public
+> sites can sit behind bot challenges that block GitHub's runner IPs, so the browser tests
+> are run locally where a normal browser/IP passes. CI gates on the offline checks
+> (type-check, redaction).
 
 Reports are written under `reports/`: the Cucumber HTML/JSON report. Screenshots and traces
 are collected automatically for failed scenarios (`reports/test-results/`).
@@ -82,13 +81,13 @@ ones to a stable ancestor, and collapses repeated list rows to one representativ
 parametrize. With `--login` it signs in first via the project's login page.
 
 ```bash
-npm run ai:inspect -- https://practicesoftwaretesting.com           # any public page
-npm run ai:inspect -- https://practicesoftwaretesting.com/auth/login
+npm run ai:inspect -- https://getmobil.com           # any public page
+npm run ai:inspect -- https://getmobil.com/iphone     # a results/listing page
 ```
 
 Output: `reports/selector-map-<slug>.json`. Accepts a full URL or a path resolved against
-`BASE_URL`, so it works against any site (the only site-specific part is `LoginPage`, used
-only for `--login`). Page text is PII-redacted before it is written.
+`BASE_URL`, so it works against any site. (`--login` performs authenticated inspection only
+when a project login page object is wired.) Page text is PII-redacted before it is written.
 
 ### AI test generation
 
@@ -153,17 +152,17 @@ Detailed report: `reports/ai-analysis.md`
 
 ## Worked example (real output)
 
-Inspecting an authenticated page produces verified, stability-ranked selectors — the
-repeated product rows collapse to one representative to parametrize, and nothing is guessed:
+Inspecting a page produces verified, stability-ranked selectors — the repeated product
+rows collapse to one representative to parametrize, and nothing is guessed:
 
 ```
-$ npm run ai:inspect -- https://practicesoftwaretesting.com
-Practice Software Testing - Toolshop - v5.0
+$ npm run ai:inspect -- https://getmobil.com
+Getmobil - Yenilenmiş Telefon, Tablet, Bilgisayar
   Elements found    : 45
   Unique selectors  : 40
   Repeated (lists)  : 5  (parametrize per item)
   Needs disambig.   : 0
-Selector map: reports/selector-map-practicesoftwaretesting-com.json
+Selector map: reports/selector-map-getmobil-com.json
 ```
 
 When a test fails, the analyzer classifies it instead of leaving you to triage:

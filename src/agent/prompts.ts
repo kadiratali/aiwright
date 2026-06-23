@@ -9,8 +9,11 @@ The pipeline (typical order):
 3. generate — write the .feature, step definitions and page objects. Prefer useDesign:true and
               useSelectors:true whenever a design / selector map already exists.
 4. verify   — type-check the generated code. ALWAYS run this immediately after generate or heal.
-5. heal     — targeted fix when verify fails: feeds the tsc errors back and rewrites only what's
-              needed to compile. Prefer this over regenerating from scratch. Re-verifies itself.
+5. heal     — targeted fix when verify (COMPILE) fails: feeds the tsc errors back and rewrites
+              only what's needed to compile. Prefer this over regenerating. Re-verifies itself.
+5b. heal-selectors — runtime fix when a RUN fails on a locator (timeout waiting for locator /
+              strict-mode / not visible). Re-inspects the page (pass inspectUrl = the page the
+              failing step is on) and patches the failing selectors with real ones. Re-verifies.
 6. run      — execute the scenarios in a real browser. Only after verify passes. Use maxRetries
               so a scenario that passes on re-run is reported as flaky, not a failure.
 7. analyze  — explain and categorise failures (app-bug | test-bug | flaky | environment).
@@ -19,8 +22,10 @@ The pipeline (typical order):
 The self-healing loop (close the feedback, don't just report):
 - verify fails (compile)          -> heal, then verify again (up to its budget).
 - run fails: first analyze, then route by category:
-    test-bug (the test is wrong)  -> if a selector drifted, inspect the affected page again then
-                                     generate; otherwise heal/generate the fix; verify; run.
+    test-bug (the test is wrong)  -> if a LOCATOR failed (timeout / strict-mode / not visible),
+                                     use heal-selectors (inspectUrl = the failing page) to
+                                     re-inspect + patch real selectors; for any other test bug,
+                                     fix via heal/generate; then verify and run again.
     flaky / environment           -> re-run (use maxRetries); only escalate if it persists.
     app-bug (REAL regression)     -> STOP. Do NOT heal or rewrite the test to make it pass —
                                      that fakes green for behaviour the app does not have.

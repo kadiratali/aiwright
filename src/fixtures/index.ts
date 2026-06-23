@@ -1,13 +1,12 @@
 import { test as base } from 'playwright-bdd';
-import { ToolshopLoginPage } from '../pages/ToolshopLoginPage';
-import { ToolshopProductsPage } from '../pages/ToolshopProductsPage';
+import { SearchPage } from '../pages/SearchPage';
 
+// Page-object fixtures are wired here as they are generated (e.g. by ai:generate).
+// Add `fooPage: async ({ page }, use) => use(new FooPage(page))` per page object.
 type PageFixtures = {
-  loginPage: ToolshopLoginPage;
-  productsPage: ToolshopProductsPage;
+  searchPage: SearchPage;
 };
 
 export const test = base.extend<PageFixtures>({
-  loginPage: async ({ page }, use) => use(new ToolshopLoginPage(page)),
-  productsPage: async ({ page }, use) => use(new ToolshopProductsPage(page))
+  searchPage: async ({ page }, use) => use(new SearchPage(page))
 });

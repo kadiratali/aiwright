@@ -20,6 +20,10 @@ const RULES: Record<StepKind, PolicyResult> = {
   inspect: { decision: 'confirm', reason: 'Opens a live browser session against the target URL.' },
   generate: { decision: 'confirm', reason: 'Writes/overwrites feature, step and page-object source files.' },
   heal: { decision: 'auto', reason: 'Targeted compile-error fix on already-generated code — low risk, gated by tsc.' },
+  'heal-selectors': {
+    decision: 'confirm',
+    reason: 'Re-opens a live browser to re-inspect the page and rewrites selector/locator code.'
+  },
   verify: { decision: 'auto', reason: 'Read-only type-check (tsc --noEmit).' },
   run: { decision: 'confirm', reason: 'Launches a real browser and executes scenarios.' },
   analyze: { decision: 'auto', reason: 'Reads the report and writes an analysis — no code.' }

@@ -7,6 +7,7 @@ import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { generateTests, correctArtifacts, writeArtifacts } from '../ai/testGenerator';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
+import { repairSelectors, type SourceFile } from '../ai/selectorHealer';
 
 import type { RunState, StepKind } from './state';
 
@@ -101,6 +102,25 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
       },
       additionalProperties: false
     }
+  },
+  {
+    name: 'heal-selectors',
+    description:
+      'Runtime selector self-heal: when a run failed because a locator did not resolve (timeout waiting for ' +
+      'locator / strict-mode / not visible), re-inspect the page where that element lives and rewrite the ' +
+      'failing selectors with real ones from the fresh map. Provide inspectUrl = the page the failing step is on ' +
+      '(e.g. the results URL, or the base URL for header elements). Re-verifies (tsc); then re-run to confirm.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        inspectUrl: {
+          type: 'string',
+          description: 'URL/path of the page where the failing element lives, to re-inspect for real selectors.'
+        }
+      },
+      required: ['inspectUrl'],
+      additionalProperties: false
+    }
   }
 ];
 
@@ -108,8 +128,54 @@ interface InspectInput { target: string; login?: string }
 interface GenerateInput { useDesign?: boolean; useSelectors?: boolean }
 interface RunInput { maxRetries?: number }
 interface AnalyzeInput { reportPath?: string }
+interface HealSelectorsInput { inspectUrl?: string }
 
 const MAX_HEAL_ROUNDS = 3;
+const MAX_SELECTOR_HEAL_ROUNDS = 3;
+
+/** Repo-relative dirs the selector healer may read from and write back to. */
+const HEAL_DIRS = ['src/pages', 'src/steps'];
+
+/** Recursively collects .ts sources under HEAL_DIRS (incl. selectors/ subdir), repo-relative. */
+function collectPagesAndSteps(rootDir: string): SourceFile[] {
+  const out: SourceFile[] = [];
+  const walk = (rel: string) => {
+    const abs = path.join(rootDir, rel);
+    if (!fs.existsSync(abs)) return;
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+      const childRel = path.join(rel, entry.name);
+      if (entry.isDirectory()) walk(childRel);
+      else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.generated') && !entry.name.endsWith('.bak')) {
+        out.push({ path: childRel, content: fs.readFileSync(path.join(rootDir, childRel), 'utf-8') });
+      }
+    }
+  };
+  for (const dir of HEAL_DIRS) walk(dir);
+  return out;
+}
+
+/**
+ * Writes the healer's corrected files back, preserving their relative path. Constrained to
+ * HEAL_DIRS (rejects anything that escapes), and backs up each original to .bak once so a
+ * failed heal can be rolled back. Returns the absolute paths actually written.
+ */
+function writeRepairedFiles(files: SourceFile[], rootDir: string): string[] {
+  const written: string[] = [];
+  for (const f of files) {
+    const rel = path.normalize(f.path).replace(/^(\.\.(\/|\\|$))+/, '');
+    const abs = path.resolve(rootDir, rel);
+    const allowed = HEAL_DIRS.some((d) => abs.startsWith(path.resolve(rootDir, d) + path.sep));
+    if (!allowed) continue; // never write outside src/pages or src/steps
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    if (fs.existsSync(abs)) {
+      const bak = `${abs}.bak`;
+      if (!fs.existsSync(bak)) fs.copyFileSync(abs, bak);
+    }
+    fs.writeFileSync(abs, f.content);
+    written.push(abs);
+  }
+  return written;
+}
 
 /** Reads the existing project sources `heal` may need to update (merging in new members). */
 function collectSources(rootDir: string): { fileName: string; content: string }[] {
@@ -200,6 +266,7 @@ export async function executeTool(
       state.artifactFiles = written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
       state.lastArtifacts = artifacts; // base for `heal`
       state.healRounds = 0; // fresh code — reset the healing budget
+      state.healSelectorRounds = 0; // and the runtime selector-heal budget
       state.lastFeatureTitle = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim();
 
       const grounding = [useDesign && design ? 'design' : null, useSelectors && selectors ? 'selectors' : null]
@@ -266,6 +333,66 @@ export async function executeTool(
       return {
         ok: false,
         summary: `Round ${state.healRounds}/${MAX_HEAL_ROUNDS}: ${after.errors.length} error(s) remain: ${tscDetail(after.errors)}`
+      };
+    }
+
+    case 'heal-selectors': {
+      const { inspectUrl } = (input as HealSelectorsInput) ?? {};
+      if (!inspectUrl) {
+        return { ok: false, summary: 'heal-selectors requires "inspectUrl" — the page where the failing element lives.' };
+      }
+      if (!state.lastRunFailed || state.lastRunFailed === 0) {
+        return { ok: false, summary: 'Nothing to heal — run the suite first; this fixes RUNTIME locator failures.' };
+      }
+      if (state.healSelectorRounds >= MAX_SELECTOR_HEAL_ROUNDS) {
+        return {
+          ok: false,
+          summary: `Selector-heal budget (${MAX_SELECTOR_HEAL_ROUNDS} rounds) exhausted — selectors still fail at runtime.`,
+          escalate: 'Repeated selector self-heal failed — a human should inspect the page and wire the selectors.'
+        };
+      }
+      const reportPath = path.join(rootDir, 'reports', 'cucumber-report.json');
+      if (!fs.existsSync(reportPath)) {
+        return { ok: false, summary: `No report at ${reportPath} — run the suite first.` };
+      }
+      const failures = extractFailures(reportPath).map((f) => ({
+        scenario: f.scenario,
+        failedStep: f.failedStep,
+        errorMessage: f.errorMessage
+      }));
+      if (failures.length === 0) {
+        return { ok: false, summary: 'Report shows no failures — nothing to heal.' };
+      }
+
+      // Re-inspect the page where the failing element lives → fresh, real selectors.
+      const map = await inspectPage(inspectUrl);
+      state.selectorMapPath = writeSelectorMap(map, rootDir);
+
+      const sources = collectPagesAndSteps(rootDir);
+      const repair = await repairSelectors(state.story, failures, JSON.stringify(map, null, 2), sources);
+      const written = writeRepairedFiles(repair.files, rootDir);
+      if (written.length === 0) {
+        return { ok: false, summary: `Healer proposed no in-scope file changes. Notes: ${repair.notes}` };
+      }
+      state.healSelectorRounds++;
+
+      // Keep the patched files in the verify/run scope, then confirm they still type-check.
+      const tsFiles = written.filter((f) => f.endsWith('.ts'));
+      state.artifactFiles = [...new Set([...state.artifactFiles, ...tsFiles])];
+      const after = verifyTypeScript(tsFiles, rootDir);
+      if (!after.ok) {
+        return {
+          ok: false,
+          summary:
+            `Patched ${tsFiles.length} file(s) from ${inspectUrl} but tsc now fails: ${tscDetail(after.errors)}. ` +
+            `Use heal, then re-run.`
+        };
+      }
+      return {
+        ok: true,
+        summary:
+          `Selector heal (round ${state.healSelectorRounds}/${MAX_SELECTOR_HEAL_ROUNDS}): re-inspected ${inspectUrl}, ` +
+          `patched ${written.map((w) => path.basename(w)).join(', ')}; type-checks. Re-run to confirm.`
       };
     }
 

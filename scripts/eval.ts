@@ -24,11 +24,11 @@ interface Check {
 const checks: Check[] = [];
 const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
 
-const GOLDEN_STORY = `Title: Customer login
-As a registered customer I want to log in so that I can access my account.
+const GOLDEN_STORY = `Title: Product search on Getmobil
+As a visitor I want to search for a product by name so that I can find the device I want.
 Acceptance Criteria:
-1. Valid credentials show the account menu.
-2. A wrong password shows a login error.`;
+1. Submitting a product name shows a results view listing matching products.
+2. A term with no matches shows a clear empty-state message and no products.`;
 
 function deterministic(): void {
   // 1) Redaction: masks PII patterns + denylist values, keeps benign numbers.
@@ -42,20 +42,18 @@ function deterministic(): void {
 
   // 2) Project surface: discovers the real helpers, page objects, and steps.
   const surface = readProjectSurface();
-  const surfaceOk = ['getUser', 'ToolshopLoginPage', 'the user is on the login page'].every((s) =>
-    surface.includes(s)
-  );
+  const surfaceOk = ['getUser', 'loadFixture'].every((s) => surface.includes(s));
   add('project surface finds real helpers/pages/steps', surfaceOk);
 }
 
 async function liveInspect(): Promise<void> {
   try {
-    const map = await inspectPage(`${TARGET_URL}/auth/login`);
-    const unique = (s: string) => map.entries.some((e) => e.selector.includes(s) && e.count === 1);
-    const ok = unique('email') && unique('password') && unique('login-submit');
-    add('inspector finds unique login selectors (live)', ok, `${map.entries.length} elements`);
+    const map = await inspectPage(`${TARGET_URL}/`);
+    const hasInput = map.entries.some((e) => /input|search|textbox/i.test(e.selector));
+    const ok = map.entries.length > 0 && hasInput;
+    add('inspector extracts a selector map from the home page (live)', ok, `${map.entries.length} elements`);
   } catch (e: any) {
-    add('inspector finds unique login selectors (live)', false, e?.message ?? String(e));
+    add('inspector extracts a selector map from the home page (live)', false, e?.message ?? String(e));
   }
 }
 
