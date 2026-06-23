@@ -127,6 +127,26 @@ function collectSources(rootDir: string): { fileName: string; content: string }[
 const tscDetail = (errors: { file: string; line: number; message: string }[]): string =>
   errors.map((e) => `${path.basename(e.file)}:${e.line} ${e.message}`).join('; ');
 
+/**
+ * Removes the `.bak` rollback copies writeArtifacts left for the given written files.
+ * Called once a heal succeeds: the backups exist only to undo a failed correction, so a
+ * clean type-check makes them dead weight. Returns how many were removed.
+ */
+function removeBackups(written: string[], rootDir: string): number {
+  let removed = 0;
+  for (const w of written) {
+    const target = path.isAbsolute(w.split(' ')[0])
+      ? w.split(' ')[0]
+      : path.join(rootDir, w.split(' ')[0]);
+    const bak = `${target}.bak`;
+    if (fs.existsSync(bak)) {
+      fs.rmSync(bak);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 const readIf = (p?: string): string | undefined =>
   p && fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : undefined;
 
@@ -234,7 +254,14 @@ export async function executeTool(
 
       const after = verifyTypeScript(state.artifactFiles, rootDir);
       if (after.ok) {
-        return { ok: true, summary: `Healed (round ${state.healRounds}/${MAX_HEAL_ROUNDS}): code now type-checks.` };
+        // Code compiles → the rollback backups are no longer needed.
+        const cleaned = removeBackups(written, rootDir);
+        return {
+          ok: true,
+          summary:
+            `Healed (round ${state.healRounds}/${MAX_HEAL_ROUNDS}): code now type-checks` +
+            `${cleaned ? `; ${cleaned} backup(s) cleaned` : ''}.`
+        };
       }
       return {
         ok: false,
