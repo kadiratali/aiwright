@@ -80,7 +80,9 @@ export async function analyzeFailures(
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 32000,
-    thinking: { type: 'adaptive' },
+    // Thinking disabled: adaptive thinking + structured output can spend the whole token
+    // budget reasoning and emit no answer (same runaway fixed in testGenerator/selectorHealer).
+    thinking: { type: 'disabled' },
     system: ANALYZER_SYSTEM,
     output_config: {
       format: { type: 'json_schema', schema: ANALYSIS_SCHEMA }

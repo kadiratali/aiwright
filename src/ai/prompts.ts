@@ -67,6 +67,10 @@ unknown, derive them from the story if provided, otherwise use clearly marked pl
 selectors with TODO comments.
 
 Scenario depth - write thorough scenarios, not 2-line stubs:
+- Each scenario must have BETWEEN 6 AND 10 steps (counting Given/When/Then/And/But lines,
+  excluding the Scenario title and any Background). Fewer than 6 is too thin; more than 10
+  means the scenario is doing too much - split it. Reach the count with meaningful context
+  and assertions, never with filler or click-by-click mechanics.
 - Set the meaningful Given context and the specific test data each scenario needs; do not
   assume a bare starting state when a precondition matters.
 - A Then must verify the real, observable CONSEQUENCES of the action - usually MORE THAN
@@ -166,6 +170,27 @@ errors and the current source of the existing project files follow. Rules:
   placeholder selector with a TODO.
 - Follow the project conventions and keep the feature/steps consistent with the fixes.
 - Return the FULL corrected artifact set (feature, steps, page objects, notes).`;
+
+// Used by the runtime selector self-heal loop: a scenario failed at RUN time because a
+// locator did not resolve (timeout waiting for locator / strict-mode / not visible). A FRESH
+// selector map (re-inspected from the page where the element lives) is provided.
+export const SELECTOR_REPAIR_INSTRUCTION = `
+A generated scenario FAILED AT RUNTIME because a Playwright locator did not resolve (e.g.
+"Timeout … waiting for locator(...)", a strict-mode violation, or "not visible"). This is a
+TEST bug, not an app bug — the selector is wrong/stale, not the application. Below are: the
+failing step(s) + error message(s) (the failing locator string is in the error), a FRESH
+selector map re-inspected from the live page, and the current source of the project files.
+Rules:
+- Identify the failing locator from the error message and replace it with a REAL selector
+  from the fresh map (verbatim; respect its strategy — CSS string vs getByRole/getByText).
+  If the element resolves to several nodes, scope it or use .first(), as the map's count
+  indicates. Only keep a placeholder + TODO if the element is genuinely not in the map.
+- Centralise selectors in the src/pages/selectors/*.ts module and reference them from the
+  page object (matching the project convention) — do not scatter raw strings inline.
+- Do NOT change Gherkin step phrasings (the Given/When/Then text bound to the feature); only
+  fix locator/assertion IMPLEMENTATION in the .ts files.
+- Return ONLY the files you actually changed, each as a repo-relative path under src/pages or
+  src/steps, with the COMPLETE new file content (not a diff).`;
 
 export const ANALYZER_SYSTEM = `${FRAMEWORK_CONTEXT}
 

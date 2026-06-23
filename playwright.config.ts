@@ -26,7 +26,7 @@ export default defineConfig({
     cucumberReporter('html', { outputFile: 'reports/cucumber-report.html' })
   ],
   use: {
-    baseURL: process.env.BASE_URL ?? 'https://practicesoftwaretesting.com',
+    baseURL: process.env.BASE_URL ?? 'https://getmobil.com',
     headless: process.env.HEADLESS !== 'false',
     viewport: { width: 1280, height: 720 },
     navigationTimeout: CI ? 30_000 : 15_000,

@@ -84,12 +84,16 @@ export async function generateTests(
     content += `\n\n${SELECTORS_INSTRUCTION}\n\nSELECTOR MAP:\n\n${safeMap}`;
   }
 
-  // Quick-trial cap for the story-only path. When a design is supplied it already fixes the
-  // scope, so the cap only applies here (don't override a curated design's scenario count).
-  if (maxScenarios && maxScenarios > 0 && !approvedDesign?.trim()) {
-    content +=
-      `\n\nQUICK TRIAL: generate AT MOST ${maxScenarios} scenario(s) — the highest-value ones ` +
-      `(core happy path first, then the most important negative case). Keep it minimal so the run is fast.`;
+  // Quick-trial cap. Applies whether or not a design is supplied: a curated design can list
+  // many scenarios (15+), and implementing all of them is a huge, slow generation — so with
+  // --max we restrict to the design's top-priority scenarios for a fast trial run.
+  if (maxScenarios && maxScenarios > 0) {
+    content += approvedDesign?.trim()
+      ? `\n\nQUICK TRIAL (overrides the "implement every listed scenario" rule for this run): ` +
+        `from the approved design, implement ONLY the ${maxScenarios} highest-priority scenario(s) ` +
+        `(P0 first, then P1) and ignore the rest. Keep it minimal so the run is fast.`
+      : `\n\nQUICK TRIAL: generate AT MOST ${maxScenarios} scenario(s) — the highest-value ones ` +
+        `(core happy path first, then the most important negative case). Keep it minimal so the run is fast.`;
   }
 
   return runGenerator(content);
@@ -101,7 +105,10 @@ async function runGenerator(content: string): Promise<GeneratedArtifacts> {
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 64000,
-    thinking: { type: 'adaptive' },
+    // Thinking disabled for generation. With adaptive thinking on (even at low effort),
+    // the model spent minutes thinking and consumed the whole 64k budget before emitting
+    // any JSON. Disabled = straight to the structured answer: fast and predictable.
+    thinking: { type: 'disabled' },
     system: GENERATOR_SYSTEM,
     output_config: {
       format: { type: 'json_schema', schema: OUTPUT_SCHEMA }
@@ -119,6 +126,12 @@ async function runGenerator(content: string): Promise<GeneratedArtifacts> {
 
   const textBlock = message.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
+    if (message.stop_reason === 'max_tokens') {
+      throw new Error(
+        'Hit max_tokens before any answer was emitted — the thinking budget consumed the whole ' +
+          'response. Lower output_config.effort or reduce scope (fewer scenarios via --max).'
+      );
+    }
     throw new Error('No text response received from the model.');
   }
   return JSON.parse(textBlock.text) as GeneratedArtifacts;

@@ -2,8 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, Page } from '@playwright/test';
 import * as dotenv from 'dotenv';
-import { ToolshopLoginPage } from '../pages/ToolshopLoginPage';
-import { getUser } from '../fixtures/data';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
 import { TARGET_URL as BASE_URL } from '../config';
@@ -49,10 +47,13 @@ interface RawEl {
   role: string;
   name: string;
   dataTest: string | null;
+  /** Which test-id attribute the value came from (data-test, data-test-id, data-cy, ...). */
+  dataTestAttr: string | null;
   id: string | null;
   classes: string;
   type: string | null;
   ancestorDataTest: string | null;
+  ancestorDataTestAttr: string | null;
   cssPath: string;
 }
 
@@ -153,11 +154,23 @@ function collectScript(maxEls: number): string {
       return st.visibility !== 'hidden' && st.display !== 'none';
     };
 
-    const nearestAncestorDataTest = (el) => {
+    // Common test-id attribute conventions, in priority order. Recognising hyphenated
+    // (data-test-id), camel-ish (data-testid) and other framework variants — not just
+    // data-test — means a stable hook like data-test-id="selenium-..." is used verbatim
+    // instead of falling back to a fragile structural selector.
+    const TESTID_ATTRS = ['data-test', 'data-testid', 'data-test-id', 'data-cy', 'data-qa', 'data-automation-id', 'data-e2e'];
+    const ownTestId = (el) => {
+      for (const a of TESTID_ATTRS) {
+        const v = el.getAttribute(a);
+        if (v) return { attr: a, val: v };
+      }
+      return null;
+    };
+    const nearestAncestorTestId = (el) => {
       let p = el.parentElement;
       while (p) {
-        const dt = p.getAttribute('data-test') || p.getAttribute('data-testid');
-        if (dt) return dt;
+        const t = ownTestId(p);
+        if (t) return t;
         p = p.parentElement;
       }
       return null;
@@ -179,7 +192,7 @@ function collectScript(maxEls: number): string {
       return parts.join(' > ');
     };
 
-    const MATCH = 'a[href],button,input,select,textarea,summary,[role],[data-test],[data-testid],h1,h2,h3,[aria-label]';
+    const MATCH = 'a[href],button,input,select,textarea,summary,[role],[data-test],[data-testid],[data-test-id],[data-cy],[data-qa],[data-automation-id],[data-e2e],h1,h2,h3,[aria-label]';
 
     const walk = (root) => {
       if (out.length >= MAX) return;
@@ -189,15 +202,19 @@ function collectScript(maxEls: number): string {
         if (out.length >= MAX) break;
         if (!isVisible(el)) continue;
         const role = roleFromTag(el);
+        const own = ownTestId(el);
+        const anc = nearestAncestorTestId(el);
         out.push({
           tag: el.tagName.toLowerCase(),
           role,
           name: accName(el),
-          dataTest: el.getAttribute('data-test') || el.getAttribute('data-testid'),
+          dataTest: own ? own.val : null,
+          dataTestAttr: own ? own.attr : null,
           id: el.id || null,
           classes: el.getAttribute('class') || '',
           type: el.getAttribute('type'),
-          ancestorDataTest: nearestAncestorDataTest(el),
+          ancestorDataTest: anc ? anc.val : null,
+          ancestorDataTestAttr: anc ? anc.attr : null,
           cssPath: shortPath(el)
         });
       }
@@ -249,9 +266,10 @@ function buildCandidate(raw: RawEl): SelectorEntry {
     ambiguous: false
   };
 
-  // 1) data-test (most trustworthy)
-  if (raw.dataTest) {
-    return { ...base, selector: `[data-test="${escAttr(raw.dataTest)}"]`, strategy: 'data-test' };
+  // 1) test-id attribute (most trustworthy) — uses the actual attribute name it came from
+  // (data-test / data-test-id / data-cy / ...), not a hardcoded data-test.
+  if (raw.dataTest && raw.dataTestAttr) {
+    return { ...base, selector: `[${raw.dataTestAttr}="${escAttr(raw.dataTest)}"]`, strategy: 'data-test' };
   }
   // 2) stable id
   if (raw.id && !looksGenerated(raw.id)) {
@@ -293,10 +311,11 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
 
   try {
     if (opts.loginUserKey) {
-      const user = getUser(opts.loginUserKey);
-      const loginPage = new ToolshopLoginPage(page);
-      await loginPage.open();
-      await loginPage.login(user.username, user.password);
+      // Authenticated inspection needs a project login page object to be wired here.
+      // None is currently configured, so we inspect the page unauthenticated and warn.
+      warnings.push(
+        `authenticated inspection requested (loginUserKey="${opts.loginUserKey}") but no login page object is wired; inspecting unauthenticated`
+      );
     }
 
     await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -320,9 +339,9 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
       const entry = buildCandidate(raw);
       entry.count = await countOf(page, entry);
 
-      if (entry.count > 1 && raw.ancestorDataTest && entry.strategy !== 'data-test') {
-        // try scoping by a stable ancestor
-        entry.scope = `[data-test="${escAttr(raw.ancestorDataTest)}"]`;
+      if (entry.count > 1 && raw.ancestorDataTest && raw.ancestorDataTestAttr && entry.strategy !== 'data-test') {
+        // try scoping by a stable ancestor (any recognised test-id attribute)
+        entry.scope = `[${raw.ancestorDataTestAttr}="${escAttr(raw.ancestorDataTest)}"]`;
         entry.count = await countOf(page, entry);
       }
       entry.ambiguous = entry.count > 1;

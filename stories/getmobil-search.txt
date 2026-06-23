@@ -1,0 +1,19 @@
+Title: Product search on Getmobil
+
+As a visitor to Getmobil
+I want to search for a product by its name
+So that I can quickly find the device I am looking for
+
+Acceptance Criteria:
+1. Typing a product name (e.g. "iPhone 13") into the header search box and submitting
+   takes the user to a results view that lists matching products.
+2. The results relate to the searched term (a result mentioning the searched model is shown).
+3. Searching for a term that has no matches shows a clear empty-state / "no results" message
+   and lists no products.
+
+Technical notes (application under test: https://getmobil.com):
+- The site UI is in Turkish. The search box lives in the site header (a text input plus a
+  submit button); use the verified selectors from the inspected selector map for them.
+- Navigate relative to the base URL (the home page is "/").
+- Use real, resilient selectors from the selector map; only fall back to a clearly marked
+  placeholder + TODO if an element (e.g. a results-page node) is not in the map.
