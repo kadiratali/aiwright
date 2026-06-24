@@ -14,22 +14,45 @@ reviewed test suite — grounded in your app's **real DOM** and **real code**, n
 > in the loop on every side-effecting step, and it never fakes a green test for behaviour
 > your app does not have: a real app bug is *escalated*, not "healed" away.
 
+```mermaid
+flowchart TD
+    story(["📝 User Story"]):::io
+    page(["🌐 Live page"]):::io
+    pass(["✅ reviewed, green suite"]):::io
+
+    design["<b>design</b><br/>risk-ranked scenario ideas"]:::step
+    human{{"👤 human curates scope"}}:::human
+    inspect["<b>inspect</b><br/>real DOM → verified selectors"]:::step
+    generate["<b>generate</b><br/>.feature · steps · page objects"]:::step
+    verify["<b>verify</b> · tsc"]:::step
+    heal["<b>heal</b><br/>rewrite until it compiles"]:::heal
+    run["<b>run</b><br/>Playwright · real browser"]:::step
+    healsel["<b>heal-selectors</b><br/>re-inspect + patch real selector"]:::heal
+    analyze["<b>analyze</b><br/>classify the failure"]:::step
+    escalate[["⚠️ real app-bug<br/>STOP — ask a human"]]:::stop
+
+    story --> design --> human --> generate
+    page --> inspect
+    inspect -. verified selectors .-> generate
+    generate --> verify
+    verify -- fails --> heal --> verify
+    verify -- ok --> run
+    run -- green --> pass
+    run -- fails --> analyze
+    healsel --> verify
+    analyze -- "test-bug<br/>(locator)" --> healsel
+    analyze -- "flaky / env" --> run
+    analyze -- "app-bug" --> escalate
+
+    classDef io fill:#161b22,stroke:#30363d,color:#e6edf3
+    classDef step fill:#1f6feb,stroke:#1158c7,color:#ffffff
+    classDef heal fill:#238636,stroke:#196c2e,color:#ffffff
+    classDef human fill:#9e6a03,stroke:#7d5400,color:#ffffff
+    classDef stop fill:#da3633,stroke:#b62324,color:#ffffff
 ```
-                    ┌──────────────────────────────────────────────────────────┐
-  User Story ──────▶│  design    risk-ranked scenario ideas  → test-design.md   │  "what to test"
-                    │              ↑ human reviews / curates scope               │
-  Live page  ──────▶│  inspect   real DOM → verified selectors → selector-map    │  no guessing
-                    │              ↓                                             │
-                    │  generate  .feature + steps + page objects                 │  scope from design,
-                    │              ↓                                             │  selectors from map
-                    │  verify    tsc ──fail──▶ heal (rewrite to compile)         │  ┐ self-heal
-                    │              ↓                                             │  │ (bounded,
-                    │  run       Playwright ──locator fails──▶ heal-selectors    │  │  gated,
-                    │              ↓          (re-inspect + patch real selector)  │  │  escalates
-                    │  analyze   app-bug | test-bug | flaky | environment        │  ┘  real bugs)
-                    └──────────────────────────────────────────────────────────┘
-       Drive it autonomously with the `agent`, or run each step yourself from the CLI.
-```
+
+> Drive it autonomously with the `agent`, or run each step yourself from the CLI. The two
+> green nodes are the **self-heal** loops; a real **app bug** is escalated, never healed green.
 
 ## Setup
 
