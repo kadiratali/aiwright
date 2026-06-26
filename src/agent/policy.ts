@@ -18,11 +18,16 @@ export interface PolicyResult {
 const RULES: Record<StepKind, PolicyResult> = {
   design: { decision: 'auto', reason: 'Produces a review-only design report — no code.' },
   inspect: { decision: 'confirm', reason: 'Opens a live browser session against the target URL.' },
+  probe: { decision: 'confirm', reason: 'Parses the OpenAPI spec and makes live HTTP calls to the API.' },
   generate: { decision: 'confirm', reason: 'Writes/overwrites feature, step and page-object source files.' },
   heal: { decision: 'auto', reason: 'Targeted compile-error fix on already-generated code — low risk, gated by tsc.' },
   'heal-selectors': {
     decision: 'confirm',
     reason: 'Re-opens a live browser to re-inspect the page and rewrites selector/locator code.'
+  },
+  'heal-contract': {
+    decision: 'confirm',
+    reason: 'Re-fetches the live API response and rewrites contract/assertion code in the API suite.'
   },
   verify: { decision: 'auto', reason: 'Read-only type-check (tsc --noEmit).' },
   run: { decision: 'confirm', reason: 'Launches a real browser and executes scenarios.' },

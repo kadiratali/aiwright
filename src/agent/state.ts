@@ -6,9 +6,11 @@ import type { GeneratedArtifacts } from '../ai/testGenerator';
 export type StepKind =
   | 'design'
   | 'inspect'
+  | 'probe'
   | 'generate'
   | 'heal'
   | 'heal-selectors'
+  | 'heal-contract'
   | 'verify'
   | 'run'
   | 'analyze';
@@ -37,6 +39,8 @@ export interface RunState {
   // Produced artifacts (paths into reports/ or src/)
   designPath?: string;
   selectorMapPath?: string;
+  /** Endpoint map from `probe` (API analogue of selectorMapPath). */
+  endpointMapPath?: string;
   /** Generated .ts files — the scope handed to `verify`. */
   artifactFiles: string[];
   /** Feature title of the last generated suite — the grep handed to `run`. */
@@ -47,6 +51,8 @@ export interface RunState {
   healRounds: number;
   /** How many runtime `heal-selectors` rounds have run (bounded the same way). */
   healSelectorRounds: number;
+  /** How many runtime `heal-contract` rounds have run (bounded the same way). */
+  healContractRounds: number;
   /** Pass/fail tally of the last `run` — used by `analyze` to detect a stale report. */
   lastRunPassed?: number;
   lastRunFailed?: number;
@@ -76,6 +82,7 @@ export function newRunState(goal: string, story: string): RunState {
     artifactFiles: [],
     healRounds: 0,
     healSelectorRounds: 0,
+    healContractRounds: 0,
     attempts: [],
     notes: []
   };

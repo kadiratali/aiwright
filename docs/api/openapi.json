@@ -1,0 +1,84 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Getmobil Search API (dummy)",
+    "version": "0.1.0",
+    "description": "Placeholder contract for the product-search service. getmobil.com does not yet publish a JSON API, so this dummy spec + the local mock in mock/server.ts stand in for it. When the real API ships, point API_BASE_URL at it and update this spec — the client/steps stay the same. This file is the grounding artifact for `probe` (and, later, ai:generate in API mode). JSON (not YAML) so `probe` can parse it dependency-free."
+  },
+  "servers": [
+    { "url": "http://localhost:4010", "description": "Local mock (npm run mock:api)" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness probe",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "example": "ok" } } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "searchProducts",
+        "summary": "Search products by term",
+        "parameters": [
+          { "name": "term", "in": "query", "required": true, "schema": { "type": "string", "example": "telefon" }, "description": "Free-text query (Turkish-aware, case-insensitive)." }
+        ],
+        "responses": {
+          "200": { "description": "Search executed (may be zero results)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } },
+          "400": { "description": "Missing/empty term", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/products/{id}": {
+      "get": {
+        "operationId": "getProduct",
+        "summary": "Fetch one product",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "p1" } }
+        ],
+        "responses": {
+          "200": { "description": "Product found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+          "404": { "description": "No product with that id", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "required": ["id", "name", "price", "slug"],
+        "properties": {
+          "id": { "type": "string", "example": "p1" },
+          "name": { "type": "string", "example": "Akıllı Telefon X" },
+          "price": { "type": "number", "example": 12999 },
+          "slug": { "type": "string", "example": "akilli-telefon-x" },
+          "category": { "type": "string", "example": "telefon" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["term", "total", "items"],
+        "properties": {
+          "term": { "type": "string" },
+          "total": { "type": "integer", "minimum": 0 },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGenerator';
 import { designTests, writeDesignReport, capScenarios } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
+import { probeApi, writeEndpointMap } from '../ai/specProbe';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 import { runAgent } from '../agent/orchestrator';
@@ -26,6 +27,12 @@ Usage:
       Opens the real page and extracts a stability-ranked selector map from the
       live DOM (data-test > stable id > role+name > text). With --login, signs in
       first via the project's LoginPage. Output: reports/selector-map-<slug>.json.
+
+  npm run ai:probe -- [spec.json] [--base <url>] [--live]
+      API analogue of ai:inspect. Parses a JSON OpenAPI spec (default docs/api/openapi.json)
+      into a map of real, declared endpoints (methods, params, response schemas). With --live,
+      also calls each GET endpoint to verify it against the running API. With --base, overrides
+      the probed base URL. Output: reports/endpoint-map-<slug>.json.
 
   npm run ai:generate -- <user-story.txt | "user story text">
                         [--design <test-design.md>] [--selectors <selector-map.json>] [--max <N>]
@@ -149,6 +156,45 @@ async function main() {
       for (const w of map.warnings) console.log(`  ! ${w}`);
       console.log(`\nSelector map: ${mapFile}`);
       console.log('Review it, then: npm run ai:generate -- <story> --selectors ' + mapFile);
+      break;
+    }
+
+    case 'probe': {
+      const args = [...rest];
+      const takeBool = (flag: string): boolean => {
+        const i = args.indexOf(flag);
+        if (i === -1) return false;
+        args.splice(i, 1);
+        return true;
+      };
+      let baseUrl: string | undefined;
+      const bi = args.indexOf('--base');
+      if (bi !== -1) {
+        baseUrl = args[bi + 1];
+        if (!baseUrl) {
+          console.error('Error: provide a URL for --base.\n' + USAGE);
+          process.exit(1);
+        }
+        args.splice(bi, 2);
+      }
+      const live = takeBool('--live');
+      const specPath = args.join(' ').trim() || 'docs/api/openapi.json';
+
+      console.log(`Probing ${specPath}${live ? ` (live against ${baseUrl ?? 'the spec server'})` : ' (spec only)'}...`);
+      const map = await probeApi(specPath, { baseUrl, live });
+      const mapFile = writeEndpointMap(map);
+
+      console.log(`\n${map.title} ${map.version ?? ''}`.trim());
+      console.log(`  Base URL        : ${map.baseUrl}`);
+      console.log(`  Endpoints       : ${map.endpoints.length}`);
+      if (live) {
+        const verified = map.endpoints.filter((e) => e.observed && e.observed.status > 0).length;
+        const undeclared = map.endpoints.filter((e) => e.observed && !e.observed.declared && e.observed.status > 0).length;
+        console.log(`  Verified live   : ${verified}`);
+        console.log(`  Undeclared stat.: ${undeclared}`);
+      }
+      for (const w of map.warnings) console.log(`  ! ${w}`);
+      console.log(`\nEndpoint map: ${mapFile}`);
       break;
     }
 
