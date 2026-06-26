@@ -192,6 +192,28 @@ Rules:
 - Return ONLY the files you actually changed, each as a repo-relative path under src/pages or
   src/steps, with the COMPLETE new file content (not a diff).`;
 
+// API counterpart of SELECTOR_REPAIR_INSTRUCTION: a scenario failed at RUN time because the
+// response did not match the expected contract (a "Contract violation …" thrown by a client, a
+// body-shape assertion, or an unexpected status). A FRESH, real API response is provided.
+export const CONTRACT_REPAIR_INSTRUCTION = `
+An API scenario FAILED AT RUNTIME because the response did not match the test's expectation
+(e.g. a thrown "Contract violation …", a mismatched body-field assertion, or an unexpected
+status code). Treat this as a STALE TEST EXPECTATION, not an app bug — the contract/assertion is
+out of date relative to what the API actually returns. Below are: the failing step(s) + error
+message(s), the FRESH response observed live from the API, and the current source of the API
+suite files. Rules:
+- Align the contract/types and assertions with the FRESH response: update the validator in
+  src/api/contracts/*.ts (field names, types, required-ness) and any step/client assertion that
+  encodes the old shape. Use the real response verbatim — do not invent fields it does not have.
+- Keep the client/contract structure intact (BaseApiClient subclasses, the validateXxx helper
+  returning an issues list) — change WHAT is expected, not the architecture.
+- Do NOT change Gherkin step phrasings (the Given/When/Then text); only fix the .ts
+  implementation (contract, client, step bodies).
+- If the response looks like a genuine API regression (an error status / missing data the story
+  REQUIRES), say so in notes and change nothing — a human must triage that, not the healer.
+- Return ONLY the files you actually changed, each as a repo-relative path under src/api or
+  src/steps/api, with the COMPLETE new file content (not a diff).`;
+
 export const ANALYZER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: analyze failed BDD scenarios from a test run. For each failure decide

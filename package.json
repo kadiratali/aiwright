@@ -5,6 +5,8 @@
   "license": "MIT",
   "scripts": {
     "test": "bddgen && playwright test",
+    "test:api": "bddgen && REPORT_NAME=api-report playwright test --project=api",
+    "mock:api": "ts-node mock/server.ts",
     "test:smoke": "bddgen --tags @smoke && playwright test",
     "test:tag": "sh -c 'bddgen --tags \"@negative\" && playwright test'",
     "test:ui": "bddgen && playwright test --ui",
@@ -13,6 +15,7 @@
     "ai:agent": "ts-node src/cli/index.ts agent",
     "ai:design": "ts-node src/cli/index.ts design",
     "ai:inspect": "ts-node src/cli/index.ts inspect",
+    "ai:probe": "ts-node src/cli/index.ts probe",
     "ai:generate": "ts-node src/cli/index.ts generate",
     "ai:analyze": "ts-node src/cli/index.ts analyze",
     "typecheck": "tsc --noEmit",
