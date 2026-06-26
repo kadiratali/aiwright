@@ -83,8 +83,9 @@ command from scratch.
 
 **Guardrails — "amplify, don't replace":**
 - Read-only steps (`design`, `verify`, `analyze`, `heal`) run automatically.
-- Side-effecting steps (`inspect`, `generate`, `run`, `heal-selectors`) pause for a human OK
-  (skipped under `--auto`, but the run record still shows what *would* have asked).
+- Side-effecting steps (`inspect`, `probe`, `generate`, `run`, `heal-selectors`,
+  `heal-contract`) pause for a human OK (skipped under `--auto`, but the run record still
+  shows what *would* have asked).
 - **Semantic escalation:** if the agent decides a failure is a real **app bug** (not a test
   bug), it *stops and asks a human* — it will not rewrite the test to make a genuine
   regression go green.
@@ -96,6 +97,7 @@ Each stage is also a standalone command — useful when you want to review betwe
 ```bash
 npm run ai:design   -- stories/getmobil-search.txt
 npm run ai:inspect  -- https://getmobil.com
+npm run ai:probe    -- docs/api/openapi.json --live    # API lane: spec → verified endpoint map
 npm run ai:generate -- stories/getmobil-search.txt --design <report> --selectors <map>
 npm run ai:analyze
 ```
@@ -110,10 +112,13 @@ of looping forever) and both **honest** (a real app bug is never healed green):
 | Layer | Trigger | What it does |
 | --- | --- | --- |
 | **`heal`** (compile) | `verify` (tsc) fails | Feeds the TypeScript errors + current sources back to the model and rewrites *only* what's needed to compile (merging new members into existing page objects). Re-verifies. |
-| **`heal-selectors`** (runtime) | a scenario fails on a locator (timeout / strict-mode / not-visible) | Pulls the failing locator from the run report, **re-inspects the live page**, and patches the bad selector with a real one from the fresh map. Writes are confined to `src/pages`/`src/steps` with a `.bak` rollback, never touch Gherkin step text, and re-verify with `tsc`. |
+| **`heal-selectors`** (runtime, UI) | a scenario fails on a locator (timeout / strict-mode / not-visible) | Pulls the failing locator from the run report, **re-inspects the live page**, and patches the bad selector with a real one from the fresh map. Writes are confined to `src/pages`/`src/steps` with a `.bak` rollback, never touch Gherkin step text, and re-verify with `tsc`. |
+| **`heal-contract`** (runtime, API) | an API scenario fails on schema drift (a thrown *Contract violation*, a body-field assertion, or an unexpected status) | Pulls the failure from the report, **re-fetches the live response** from the endpoint, and rewrites the stale contract/assertions. Writes are confined to `src/api`/`src/steps/api` with a `.bak` rollback, never touch Gherkin step text, and re-verify with `tsc`. |
 
-A locator failure is treated as a **test bug**, not an app bug — the selector drifted, the
-app didn't. Re-inspect + patch is exactly the right fix, and it's automatic.
+A locator or contract drift is treated as a **test bug**, not an app bug — the selector/schema
+drifted, the app didn't. Re-inspect/re-fetch + patch is exactly the right fix, and it's
+automatic. A *real* API regression (an error status or missing data the story requires) is an
+**app-bug**: escalated, never healed green.
 
 ---
 
@@ -153,6 +158,23 @@ npm run ai:inspect -- "https://getmobil.com/ara/?term=iphone"   # a results/list
 
 Output: `reports/selector-map-<slug>.json`. Accepts a full URL or a path resolved against
 `BASE_URL`.
+
+### `probe` — real API contract, no guessing
+
+The API counterpart of `inspect`. Instead of a live DOM it reads an **OpenAPI spec** and
+turns it into a **map of real, declared endpoints** (methods, params, response schemas), so
+API tests target real paths/shapes instead of guessing. With `--live` it also *calls each GET
+endpoint* and records the observed status — the verification half, mirroring how `inspect`
+checks selectors against the live DOM. Deterministic (no LLM); JSON spec only (so it parses
+dependency-free).
+
+```bash
+npm run ai:probe                                   # spec only (default docs/api/openapi.json)
+npm run ai:probe -- docs/api/openapi.json --live   # also verify each GET against the running API
+npm run ai:probe -- <spec.json> --base http://localhost:4010 --live
+```
+
+Output: `reports/endpoint-map-<slug>.json`.
 
 ### `generate` — feature + steps + page objects
 
@@ -210,6 +232,30 @@ npm run report            # open the Cucumber HTML report
 > redaction). Reports land under `reports/`; screenshots and traces are captured for failed
 > scenarios under `reports/test-results/`.
 
+## API testing (APIRequestContext lane)
+
+Alongside the UI lane there's a second, **browserless** lane for HTTP/API tests — same
+BDD/Gherkin format, but driven by Playwright's `APIRequestContext` instead of a page. The two
+lanes share the `features/` tree and are split by tag: `@api` scenarios run in the `api`
+Playwright project (no browser), everything else in `chromium`.
+
+```bash
+npm run test:api          # @api scenarios only (browserless) → reports/api-report.{json,html}
+npm run mock:api          # run the local mock API standalone (otherwise auto-booted)
+```
+
+getmobil.com doesn't publish a JSON API yet, so a **dummy contract** (`docs/api/openapi.json`)
+plus a local **Express mock** (`mock/server.ts`) stand in. Playwright's `webServer` auto-boots
+the mock for `test:api`. When the real API ships, point `API_BASE_URL` at it and update the
+spec — the clients/steps don't change.
+
+The lane mirrors the UI structure: `src/api/BaseApiClient.ts` is the page-object analogue over
+`APIRequestContext`, `src/api/clients/*Api.ts` are the resource clients, `src/api/contracts/*`
+are dependency-free response validators (the seam `heal-contract` acts on), and
+`src/api/fixtures.ts` wires it all into the `api` BDD project. The same agent pipeline applies
+— `probe` grounds it (the API twin of `inspect`) and `heal-contract` self-heals schema drift
+(the API twin of `heal-selectors`).
+
 ## Web UI (AI QA Studio)
 
 A small browser front end over the same pipeline: paste a user story → review the AI design
@@ -257,23 +303,26 @@ The bundled `stories/getmobil-search.txt` (product search) is live-green end to 
 ## Project Structure
 
 ```
-playwright.config.ts   defineBddConfig + reporter + use settings
-features/              Gherkin feature files
+playwright.config.ts   defineBddProject (chromium UI + browserless api) + reporter + webServer
+features/              Gherkin feature files (api/ holds the @api lane)
 fixtures/              Test data (users.json, sensitive/ …)
+docs/api/              OpenAPI spec(s) — grounding for the API lane (openapi.json)
+mock/                  Local Express mock standing in for the real API (server.ts)
 src/
-  ai/                  Claude pipeline: testDesigner · pageInspector · testGenerator ·
-                       failureAnalyzer · selectorHealer · prompts · redact · client
+  ai/                  Claude pipeline: testDesigner · pageInspector · specProbe · testGenerator ·
+                       failureAnalyzer · selectorHealer · contractHealer · prompts · redact · client
   agent/               Autonomous orchestrator: orchestrator (tool-use loop) · tools ·
                        state · policy (guardrails) · prompts · io
-  cli/                 ai:design / ai:inspect / ai:generate / ai:analyze / ai:agent
+  cli/                 ai:design / ai:inspect / ai:probe / ai:generate / ai:analyze / ai:agent
+  api/                 API lane: BaseApiClient · clients/*Api · contracts/* (validators) · fixtures
   pages/               Page Object Model (extends BasePage)
     selectors/         Centralised selector modules (one per site, *.selectors.ts)
-  steps/               Step definitions (fixture-based, via createBdd)
+  steps/               Step definitions (fixture-based, via createBdd); steps/api/ for the @api lane
   fixtures/            Playwright fixtures (page objects) + data helpers
   web/                 Express server exposing the pipeline (npm run web)
 public/                AI QA Studio single-page UI
 .features-gen/         specs generated by bddgen (not committed)
-reports/               designs, selector maps, run state, analysis (not committed)
+reports/               designs, selector/endpoint maps, run state, analysis (not committed)
 ```
 
 ## Sensitive Data Protection (PII)
@@ -317,8 +366,10 @@ giving a number to "how well does it work" instead of a vibe.
 - [x] `generate` — user story → feature + steps + page objects (structured outputs)
 - [x] `analyze` — failure classification (app-bug | test-bug | flaky | environment)
 - [x] **agent** — autonomous orchestrator over the whole pipeline, with guardrails
-- [x] **self-healing** — compile (`heal`) + runtime selector (`heal-selectors`)
+- [x] **self-healing** — compile (`heal`) + runtime selector (`heal-selectors`) + runtime contract (`heal-contract`)
+- [x] **API lane** — browserless `APIRequestContext` suite with `probe` (OpenAPI → endpoint map) and `heal-contract`
 - [x] CI/CD integration (GitHub Actions: type-check + redaction gate)
+- [ ] `generate` API mode — endpoint map → API feature + client objects (build API suites end to end, not just heal them)
 - [ ] human-approval web UI over the agent loop (surface run state + confirm/escalate gates)
 - [ ] Jira integration (pull stories, write results back)
 - [ ] MCP server (secure tool access layer)
