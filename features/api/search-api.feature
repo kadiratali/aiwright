@@ -1,17 +1,17 @@
 @api
-Feature: Ürün arama API'si
+Feature: Product search API
 
   Background:
-    Given arama servisi ayakta
+    Given the API is up
 
-  Scenario: Bilinen bir terim sonuç döndürür
-    When "telefon" araması yapılır
-    Then HTTP 200 döner
-    And en az 1 ürün listelenir
-    And her ürün id, name ve price alanlarını içerir
-    And sonuçlardan en az biri "telefon" terimini içerir
+  Scenario: A known term returns results
+    When a search for "telefon" is performed
+    Then the response status is 200
+    And the response contains at least 1 results
+    And each result has id, name and price fields
+    And at least one result mentions "telefon"
 
-  Scenario: Eşleşmeyen terim boş sonuç döndürür
-    When "xyzqwerty" araması yapılır
-    Then HTTP 200 döner
-    And hiç ürün listelenmez
+  Scenario: A non-matching term returns no results
+    When a search for "xyzqwerty" is performed
+    Then the response status is 200
+    And the response contains no results

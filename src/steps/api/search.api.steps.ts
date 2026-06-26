@@ -1,42 +1,39 @@
 import { expect } from '@playwright/test';
 import { Given, When, Then } from './common';
+import type { SearchResponse } from '../../api/contracts/search';
 
-Given('arama servisi ayakta', async ({ apiClient }) => {
-  const res = await apiClient.get('/health');
-  expect(res.status()).toBe(200);
-  expect((await res.json()).status).toBe('ok');
+// Reuses the shared 'the API is up' (Background) and 'the response status is {int}' steps from
+// common.api.steps.ts — only the search-specific call + assertions live here.
+
+When('a search for {string} is performed', async ({ searchApi, apiState }, term: string) => {
+  apiState.last = await searchApi.search(term);
 });
 
-When('{string} araması yapılır', async ({ searchApi, searchState }, term: string) => {
-  searchState.last = await searchApi.search(term);
+Then('the response contains at least {int} results', async ({ apiState }, min: number) => {
+  const body = apiState.last!.body as SearchResponse;
+  expect(body.items.length).toBeGreaterThanOrEqual(min);
 });
 
-Then('HTTP {int} döner', async ({ searchState }, code: number) => {
-  expect(searchState.last, 'önce bir arama yapılmalı').toBeDefined();
-  expect(searchState.last!.status).toBe(code);
+Then('the response contains no results', async ({ apiState }) => {
+  const body = apiState.last!.body as SearchResponse;
+  expect(body.total).toBe(0);
+  expect(body.items).toHaveLength(0);
 });
 
-Then('en az {int} ürün listelenir', async ({ searchState }, min: number) => {
-  expect(searchState.last!.body.items.length).toBeGreaterThanOrEqual(min);
-});
-
-Then('hiç ürün listelenmez', async ({ searchState }) => {
-  expect(searchState.last!.body.total).toBe(0);
-  expect(searchState.last!.body.items).toHaveLength(0);
-});
-
-Then('her ürün id, name ve price alanlarını içerir', async ({ searchState }) => {
-  for (const item of searchState.last!.body.items) {
-    expect(item.id, 'id boş olmamalı').toBeTruthy();
+Then('each result has id, name and price fields', async ({ apiState }) => {
+  const body = apiState.last!.body as SearchResponse;
+  for (const item of body.items) {
+    expect(item.id, 'id must not be empty').toBeTruthy();
     expect(typeof item.name).toBe('string');
     expect(typeof item.price).toBe('number');
   }
 });
 
-Then('sonuçlardan en az biri {string} terimini içerir', async ({ searchState }, term: string) => {
+Then('at least one result mentions {string}', async ({ apiState }, term: string) => {
+  const body = apiState.last!.body as SearchResponse;
   const needle = term.toLocaleLowerCase('tr');
-  const hit = searchState.last!.body.items.some(
+  const hit = body.items.some(
     (i) => i.name.toLocaleLowerCase('tr').includes(needle) || (i.category ?? '').toLocaleLowerCase('tr').includes(needle)
   );
-  expect(hit, `hiçbir sonuç "${term}" terimini içermiyor`).toBe(true);
+  expect(hit, `no result mentions "${term}"`).toBe(true);
 });

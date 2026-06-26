@@ -43,6 +43,9 @@ Usage:
       (authoritative scope; no invented scenarios, no dropped ones).
       With --selectors, real selectors from an ai:inspect map are used verbatim
       instead of guessed/placeholder ones.
+      With --api (or --endpoints <endpoint-map.json>), generates API-lane tests instead:
+      an @api .feature, API step definitions, and client/contract files under src/api,
+      grounded in a probed endpoint map (--endpoints) when supplied.
       With --verify, runs tsc on the generated code and reports whether it
       compiles (and exactly what wiring is missing if not).
       With --fix, also feeds any compile errors back to the model to
@@ -221,9 +224,15 @@ async function main() {
       const maxScenarios = takeMaxFlag(args);
       const designPath = takeFlag('--design');
       const selectorsPath = takeFlag('--selectors');
+      const endpointsPath = takeFlag('--endpoints');
+      const apiFlag = takeBool('--api');
       const fix = takeBool('--fix');
       const run = takeBool('--run');
       const verify = takeBool('--verify') || fix || run;
+
+      // API mode when --api is set or an endpoint map is supplied.
+      const apiMode = apiFlag || !!endpointsPath;
+      const mode: 'ui' | 'api' = apiMode ? 'api' : 'ui';
 
       const input = args.join(' ').trim();
       if (!input) {
@@ -242,21 +251,23 @@ async function main() {
         console.log(`Using approved design: ${designPath}`);
       }
 
-      let selectors: string | undefined;
-      if (selectorsPath) {
-        if (!fs.existsSync(selectorsPath)) {
-          console.error(`Error: selector map not found: ${selectorsPath}`);
+      // The grounding map: selector map (UI) or endpoint map (API).
+      let mapJson: string | undefined;
+      const mapPath = apiMode ? endpointsPath : selectorsPath;
+      if (mapPath) {
+        if (!fs.existsSync(mapPath)) {
+          console.error(`Error: ${apiMode ? 'endpoint' : 'selector'} map not found: ${mapPath}`);
           process.exit(1);
         }
-        selectors = fs.readFileSync(selectorsPath, 'utf-8');
-        console.log(`Using selector map: ${selectorsPath}`);
+        mapJson = fs.readFileSync(mapPath, 'utf-8');
+        console.log(`Using ${apiMode ? 'endpoint' : 'selector'} map: ${mapPath}`);
       }
 
       console.log(
-        `Processing user story, generating test artifacts${maxScenarios && !design ? ` (quick: ≤${maxScenarios} scenarios)` : ''}...`
+        `Processing user story, generating ${apiMode ? 'API ' : ''}test artifacts${maxScenarios && !design ? ` (quick: ≤${maxScenarios} scenarios)` : ''}...`
       );
-      let artifacts = await generateTests(story, design, selectors, maxScenarios);
-      let written = writeArtifacts(artifacts);
+      let artifacts = await generateTests(story, design, mapJson, maxScenarios, mode);
+      let written = writeArtifacts(artifacts, process.cwd(), {}, mode);
 
       console.log('\nFiles created:');
       for (const f of written) console.log(`  - ${f}`);
@@ -272,19 +283,24 @@ async function main() {
         while (!result.ok && fix && round < MAX_ROUNDS) {
           round++;
           console.log(`✗ ${result.errors.length} error(s); self-correcting (round ${round}/${MAX_ROUNDS})...`);
-          // Give the model the current source of the project files it must update.
+          // Give the model the current source of the project files it must update —
+          // the API suite (recursive) in API mode, the UI page/fixture files otherwise.
           const sources: { fileName: string; content: string }[] = [];
-          for (const dir of ['src/pages', 'src/fixtures']) {
-            const abs = path.join(process.cwd(), dir);
-            if (!fs.existsSync(abs)) continue;
-            for (const f of fs.readdirSync(abs)) {
-              if (f.endsWith('.ts') && !f.endsWith('.generated')) {
-                sources.push({ fileName: f, content: fs.readFileSync(path.join(abs, f), 'utf-8') });
+          const collect = (rel: string) => {
+            const abs = path.join(process.cwd(), rel);
+            if (!fs.existsSync(abs)) return;
+            for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+              const childRel = path.join(rel, entry.name);
+              if (entry.isDirectory()) collect(childRel);
+              else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.generated') && !entry.name.endsWith('.bak')) {
+                sources.push({ fileName: childRel, content: fs.readFileSync(path.join(process.cwd(), childRel), 'utf-8') });
               }
             }
-          }
-          artifacts = await correctArtifacts(story, artifacts, result.errors, sources, selectors);
-          written = writeArtifacts(artifacts, process.cwd(), { overwrite: true });
+          };
+          for (const dir of apiMode ? ['src/api', 'src/steps/api'] : ['src/pages', 'src/fixtures']) collect(dir);
+
+          artifacts = await correctArtifacts(story, artifacts, result.errors, sources, mapJson, mode);
+          written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, mode);
           result = verifyTypeScript(scopeFiles(written));
         }
 

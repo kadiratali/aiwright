@@ -74,13 +74,17 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
   {
     name: 'generate',
     description:
-      'Generate the .feature file, step definitions and page objects from the story. ' +
-      'Set useDesign/useSelectors to true to ground generation in the design and selector map already produced.',
+      'Generate the .feature file, step definitions and page objects (UI) — or, with api:true, an ' +
+      '@api feature + API step definitions + client/contract files (API lane). Set ' +
+      'useDesign/useSelectors/useEndpoints to ground generation in the design, selector map, or ' +
+      'endpoint map already produced.',
     input_schema: {
       type: 'object',
       properties: {
         useDesign: { type: 'boolean', description: 'Scope generation to the approved design (if one exists).' },
-        useSelectors: { type: 'boolean', description: 'Use the inspected selector map verbatim (if one exists).' }
+        useSelectors: { type: 'boolean', description: 'UI: use the inspected selector map verbatim (if one exists).' },
+        api: { type: 'boolean', description: 'Generate API-lane tests (APIRequestContext) instead of UI tests.' },
+        useEndpoints: { type: 'boolean', description: 'API: use the probed endpoint map verbatim (implies api:true).' }
       },
       additionalProperties: false
     }
@@ -168,7 +172,7 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
 
 interface InspectInput { target: string; login?: string }
 interface ProbeInput { specPath?: string; baseUrl?: string; live?: boolean }
-interface GenerateInput { useDesign?: boolean; useSelectors?: boolean }
+interface GenerateInput { useDesign?: boolean; useSelectors?: boolean; api?: boolean; useEndpoints?: boolean }
 interface RunInput { maxRetries?: number }
 interface AnalyzeInput { reportPath?: string }
 interface HealSelectorsInput { inspectUrl?: string }
@@ -227,7 +231,11 @@ function writeRepairedFiles(files: SourceFile[], rootDir: string, allowedDirs: s
 }
 
 /** Reads the existing project sources `heal` may need to update (merging in new members). */
-function collectSources(rootDir: string): { fileName: string; content: string }[] {
+function collectSources(rootDir: string, mode: 'ui' | 'api' = 'ui'): { fileName: string; content: string }[] {
+  if (mode === 'api') {
+    // The API suite (clients, contracts, fixtures, steps) — keyed by repo-relative path.
+    return collectSourceFiles(rootDir, API_HEAL_DIRS).map((f) => ({ fileName: f.path, content: f.content }));
+  }
   const sources: { fileName: string; content: string }[] = [];
   for (const dir of ['src/pages', 'src/fixtures']) {
     const abs = path.join(rootDir, dir);
@@ -321,28 +329,41 @@ export async function executeTool(
     }
 
     case 'generate': {
-      const { useDesign, useSelectors } = (input as GenerateInput) ?? {};
-      const design = useDesign ? readIf(state.designPath) : undefined;
-      const selectors = useSelectors ? readIf(state.selectorMapPath) : undefined;
+      const g = (input as GenerateInput) ?? {};
+      const apiMode = !!(g.api || g.useEndpoints);
+      const mode: 'ui' | 'api' = apiMode ? 'api' : 'ui';
+      const design = g.useDesign ? readIf(state.designPath) : undefined;
+      const mapJson = apiMode
+        ? g.useEndpoints
+          ? readIf(state.endpointMapPath)
+          : undefined
+        : g.useSelectors
+          ? readIf(state.selectorMapPath)
+          : undefined;
 
-      const artifacts = await generateTests(state.story, design, selectors);
-      const written = writeArtifacts(artifacts, rootDir, { overwrite: true });
+      const artifacts = await generateTests(state.story, design, mapJson, undefined, mode);
+      const written = writeArtifacts(artifacts, rootDir, { overwrite: true }, mode);
 
       // writeArtifacts may annotate paths (e.g. "foo.ts (overwritten)"); keep the path part.
       state.artifactFiles = written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
       state.lastArtifacts = artifacts; // base for `heal`
+      state.lastGenMode = mode; // routes which lane `heal` corrects
       state.healRounds = 0; // fresh code — reset the healing budget
       state.healSelectorRounds = 0; // and the runtime selector-heal budget
       state.healContractRounds = 0; // and the runtime contract-heal budget
       state.lastFeatureTitle = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim();
 
-      const grounding = [useDesign && design ? 'design' : null, useSelectors && selectors ? 'selectors' : null]
+      const grounding = [
+        g.useDesign && design ? 'design' : null,
+        !apiMode && g.useSelectors && mapJson ? 'selectors' : null,
+        apiMode && g.useEndpoints && mapJson ? 'endpoints' : null
+      ]
         .filter(Boolean)
         .join(' + ');
       return {
         ok: true,
         summary:
-          `Generated ${written.length} file(s)${grounding ? ` (grounded in ${grounding})` : ''}: ` +
+          `Generated ${written.length} ${apiMode ? 'API ' : ''}file(s)${grounding ? ` (grounded in ${grounding})` : ''}: ` +
           `${written.join(', ')}. Run verify next.`
       };
     }
@@ -373,15 +394,17 @@ export async function executeTool(
       const before = verifyTypeScript(state.artifactFiles, rootDir);
       if (before.ok) return { ok: true, summary: 'Already type-checks — nothing to heal.' };
 
-      const selectors = readIf(state.selectorMapPath);
+      const mode = state.lastGenMode ?? 'ui';
+      const mapJson = mode === 'api' ? readIf(state.endpointMapPath) : readIf(state.selectorMapPath);
       const corrected = await correctArtifacts(
         state.story,
         state.lastArtifacts,
         before.errors,
-        collectSources(rootDir),
-        selectors
+        collectSources(rootDir, mode),
+        mapJson,
+        mode
       );
-      const written = writeArtifacts(corrected, rootDir, { overwrite: true });
+      const written = writeArtifacts(corrected, rootDir, { overwrite: true }, mode);
       state.lastArtifacts = corrected;
       state.artifactFiles = written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
       state.healRounds++;

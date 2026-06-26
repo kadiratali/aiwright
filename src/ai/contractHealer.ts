@@ -61,7 +61,7 @@ export async function repairContract(
     `FRESH API RESPONSE (observed live):\n\n${redact(freshResponseJson)}\n\n` +
     `CURRENT PROJECT SOURCES (return only the ones you change):\n\n${redact(sourcesText)}`;
 
-  const surface = readProjectSurface();
+  const surface = readProjectSurface(process.cwd(), 'api');
   if (surface) content += `\n\n${PROJECT_SURFACE_INSTRUCTION}\n\nPROJECT API SURFACE:\n\n${surface}`;
 
   const client = getClient();
