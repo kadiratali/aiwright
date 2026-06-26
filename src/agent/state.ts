@@ -47,6 +47,8 @@ export interface RunState {
   lastFeatureTitle?: string;
   /** Last generated/corrected artifacts — the base `heal` corrects against. */
   lastArtifacts?: GeneratedArtifacts;
+  /** Which lane the last `generate` produced — routes `heal`'s sources/dirs/prompt. */
+  lastGenMode?: 'ui' | 'api';
   /** How many targeted `heal` rounds have run (bounded to stop infinite fix loops). */
   healRounds: number;
   /** How many runtime `heal-selectors` rounds have run (bounded the same way). */

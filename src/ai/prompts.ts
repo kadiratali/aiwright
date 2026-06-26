@@ -90,6 +90,107 @@ Scenario depth - write thorough scenarios, not 2-line stubs:
 - Reuse one well-named step across scenarios; richer verification means more meaningful
   Then/And assertions, not more brittle low-level steps.`;
 
+// API-lane counterpart of FRAMEWORK_CONTEXT: HTTP tests over APIRequestContext, no browser.
+export const API_FRAMEWORK_CONTEXT = `
+You are the AI layer of a QA automation framework. This task targets its API lane: HTTP tests
+driven by Playwright's APIRequestContext. There is NO browser, NO page object, NO selector here.
+
+- TypeScript + playwright-bdd: Gherkin features compile to Playwright specs (bddgen). The API
+  lane is a SEPARATE, browserless Playwright project selected by the @api tag.
+- API feature files live in features/api/*.feature (Gherkin, English keywords). The Feature MUST
+  be tagged @api (put @api on the line above "Feature:") so the api project runs it.
+- API step definitions live in src/steps/api/*.api.steps.ts and import { Given, When, Then } from
+  './common' (which wraps createBdd(test) with the API-typed test).
+- Resource clients live in src/api/clients/*Api.ts and extend BaseApiClient (src/api/BaseApiClient.ts),
+  which exposes protected get(path, params?) and post(path, data?) over APIRequestContext. Name a
+  client method after the operation (search/fetch/create) — NOT get/post (those are the protected
+  base methods; reusing the name shadows them).
+- Response contracts live in src/api/contracts/*.ts as dependency-free validators: an exported
+  interface for the shape PLUS a validateXxx(body): string[] returning a list of problems (empty =
+  valid). A client validates a 200 body and THROWS "Contract violation: ..." when it drifts.
+- There is ONE shared state fixture, apiState ({ last?: { status, body } }), in src/api/fixtures.ts.
+  Every resource's When step stores its response there; the shared generic steps read it. This is
+  what lets generic steps be defined ONCE and reused — do NOT add a per-resource state fixture.
+- Generic, resource-agnostic steps already exist in src/steps/api/common.api.steps.ts and MUST be
+  reused verbatim (they are in the PROJECT API SURFACE), e.g. Given('the API is up') and
+  Then('the response status is {int}'). Your resource's steps file defines ONLY the When (the call)
+  and the resource-specific Then assertions — never re-declare a generic step.
+- Write Gherkin step text in ENGLISH (English keywords AND English step phrasings), matching the
+  existing features.
+
+- Step example (your resource's steps file — note it does NOT define a status step; it reuses the
+  shared one and just stores the response in apiState):
+  import { expect } from '@playwright/test';
+  import { Given, When, Then } from './common';
+  import type { Product } from '../../api/contracts/product';
+
+  When('the {string} product is fetched', async ({ productApi, apiState }, id: string) => {
+    apiState.last = await productApi.fetch(id);   // shared Then('the response status is {int}') asserts it
+  });
+  Then('the product has a positive price', async ({ apiState }) => {
+    expect((apiState.last!.body as Product).price).toBeGreaterThan(0);
+  });
+
+- Client example:
+  import { BaseApiClient } from '../BaseApiClient';
+  import { validateProduct, type Product } from '../contracts/product';
+  export class ProductApi extends BaseApiClient {
+    async fetch(id: string): Promise<{ status: number; body: Product }> {
+      const res = await this.get('/api/products/' + id);
+      const body = (await res.json()) as Product;
+      if (res.status() === 200) {
+        const issues = validateProduct(body);
+        if (issues.length) throw new Error('Contract violation on /api/products: ' + issues.join('; '));
+      }
+      return { status: res.status(), body };
+    }
+  }
+
+Wiring: if a scenario needs a NEW client/state, RETURN THE FULL UPDATED src/api/fixtures.ts in
+supportFiles — merge the new client + state fixtures into the existing ones (PRESERVE every
+existing entry; the current file is given to you). Put the feature in features/api, the steps in
+src/steps/api, and every client/contract/fixture file under src/api with its repo-relative path.
+
+Rules:
+- Use real endpoints/shapes from the ENDPOINT MAP verbatim; never invent routes, params, or status codes.
+- STEP UNIQUENESS (critical — playwright-bdd FAILS the whole suite on a duplicate definition): the
+  PROJECT API SURFACE lists steps that already exist; you MUST NOT redefine any of them. REUSE the
+  shared generic steps verbatim (Given 'the API is up' for the Background, Then 'the response status
+  is {int}' for the status) by storing your response in the shared apiState — do NOT re-declare them
+  under any phrasing. Any NEW step you add (resource-specific assertions) must have a phrasing that appears
+  nowhere in the surface.
+- Scenarios must be independent (no shared state between scenarios). Use Background for shared setup
+  (e.g. a health check). Cover the happy path, key negative cases (404/400/validation), and edges.
+- Each scenario must have BETWEEN 6 AND 10 steps, DECLARATIVE (state intent/outcome, not HTTP
+  mechanics). A Then verifies real consequences — usually MORE THAN ONE assertion (status AND body
+  shape AND a specific field), and for negatives the exact error AND that nothing was returned.`;
+
+export const API_GENERATOR_SYSTEM = `${API_FRAMEWORK_CONTEXT}
+
+Your task: given a user story (with optional acceptance criteria), produce a complete, runnable
+API test artifact set: one @api .feature file (features/api), one *.api.steps.ts file
+(src/steps/api), and the supporting client/contract files (and a merged src/api/fixtures.ts if a
+new client/state is needed) in supportFiles with repo-relative paths under src/api. Leave
+pageObjects empty. If a needed endpoint is not in the map, mark it with a TODO in notes.`;
+
+// Appended to an API generation/correction request when an endpoint map is supplied.
+export const ENDPOINTS_INSTRUCTION = `
+An ENDPOINT MAP probed from the API's OpenAPI spec follows (JSON). Each entry is a REAL, declared
+endpoint (method, path, params, response status→schema; "observed" is a live call if present).
+Rules:
+- For any endpoint a scenario exercises, USE that entry's method + path + params verbatim — do not
+  invent routes, params, or status codes. Build the client method around it.
+- Model the response contract on the declared response schema (and the live "observed" shape if
+  present): the validator interface + required fields come from there, not from guesses.
+- If a scenario needs an endpoint NOT in the map, surface it as a TODO in notes rather than inventing it.`;
+
+// Appended to the correction request in API mode (the UI CORRECTION_INSTRUCTION talks about page
+// objects; in the API lane the files to return live under src/api in supportFiles instead).
+export const API_CORRECTION_NOTE = `
+NOTE (API lane): the project files to fix live under src/api and src/steps/api, returned in
+"supportFiles" with repo-relative paths (NOT "pageObjects"). Return the COMPLETE updated content of
+each file you change (the existing content PLUS your fix), preserving existing exports/fixtures.`;
+
 export const DESIGNER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: given a user story (with optional acceptance criteria), produce a TEST DESIGN

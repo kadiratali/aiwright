@@ -79,10 +79,10 @@ function pageObjects(root: string): string[] {
   return out;
 }
 
-/** Existing Gherkin step phrasings (so the generator reuses them, never redefines). */
-function steps(root: string): string[] {
+/** Existing Gherkin step phrasings under a steps dir (so the generator reuses, never redefines). */
+function steps(root: string, dir = 'src/steps'): string[] {
   const out: string[] = [];
-  for (const file of listTsFiles(path.join(root, 'src/steps'))) {
+  for (const file of listTsFiles(path.join(root, dir))) {
     const src = read(file);
     const re = /\b(Given|When|Then)\(\s*['"]([^'"]+)['"]/g;
     let m: RegExpExecArray | null;
@@ -91,15 +91,72 @@ function steps(root: string): string[] {
   return out;
 }
 
-/** Builds a compact API-surface block for the generator prompt. Empty string if nothing found. */
-export function readProjectSurface(root = process.cwd()): string {
+/** Classes with their public methods, found under the given dirs (clients, base client). */
+function classesIn(root: string, dirs: string[]): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) {
+    for (const file of listTsFiles(path.join(root, dir))) {
+      const src = read(file);
+      const cls = src.match(/export\s+(?:abstract\s+)?class\s+(\w+)/);
+      if (!cls) continue;
+      const methods: string[] = [];
+      const methodRe = /^\s*(?:public\s+|protected\s+|async\s+)*([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*(?::[^={]+)?\{/gm;
+      let m: RegExpExecArray | null;
+      while ((m = methodRe.exec(src))) {
+        if (METHOD_KEYWORDS.has(m[1])) continue;
+        methods.push(`${m[1]}(${m[2].trim()})`);
+      }
+      out.push(methods.length ? `${cls[1]}: ${[...new Set(methods)].join(', ')}` : cls[1]);
+    }
+  }
+  return out;
+}
+
+/** Contract validators: exported interfaces + validateXxx functions under src/api/contracts. */
+function apiContracts(root: string): string[] {
+  const out: string[] = [];
+  for (const file of listTsFiles(path.join(root, 'src/api/contracts'))) {
+    const src = read(file);
+    let m: RegExpExecArray | null;
+    const ifaceRe = /export\s+interface\s+(\w+)/g;
+    while ((m = ifaceRe.exec(src))) out.push(`interface ${m[1]} (${path.basename(file)})`);
+    const fnRe = /export\s+function\s+(validate\w*)\s*\(([^)]*)\)/g;
+    while ((m = fnRe.exec(src))) out.push(`${m[1]}(${m[2].trim()})`);
+  }
+  return out;
+}
+
+/**
+ * Builds a compact API-surface block for the generator prompt. With mode 'api' it surfaces the
+ * API lane (clients, contracts, the full current api fixtures file to merge, api step phrasings);
+ * otherwise the UI lane (page objects, ui fixtures, ui steps). Empty string if nothing found.
+ */
+export function readProjectSurface(root = process.cwd(), mode: 'ui' | 'api' = 'ui'): string {
   const helpers = dataHelpers(root);
+  const sections: string[] = [];
+  if (helpers.length) sections.push(`Data helpers (src/fixtures/data.ts):\n- ${helpers.join('\n- ')}`);
+
+  if (mode === 'api') {
+    const clients = classesIn(root, ['src/api', 'src/api/clients']);
+    const contracts = apiContracts(root);
+    const apiStepList = steps(root, 'src/steps/api');
+    const fixturesSrc = read(path.join(root, 'src/api/fixtures.ts'));
+
+    if (clients.length) sections.push(`API clients (src/api, extend BaseApiClient):\n- ${clients.join('\n- ')}`);
+    if (contracts.length) sections.push(`Response contracts (src/api/contracts):\n- ${contracts.join('\n- ')}`);
+    if (apiStepList.length)
+      sections.push(`Existing API step definitions (REUSE verbatim; do NOT redefine):\n- ${apiStepList.join('\n- ')}`);
+    if (fixturesSrc.trim())
+      sections.push(
+        `Current src/api/fixtures.ts (return a FULL merged version in supportFiles if you add a ` +
+          `client/state fixture — PRESERVE the existing entries):\n\n${fixturesSrc}`
+      );
+    return sections.join('\n\n');
+  }
+
   const fix = fixtures(root);
   const pages = pageObjects(root);
   const stepList = steps(root);
-
-  const sections: string[] = [];
-  if (helpers.length) sections.push(`Data helpers (src/fixtures/data.ts):\n- ${helpers.join('\n- ')}`);
   if (fix.length) sections.push(`Fixtures available to steps (destructure from the first arg):\n- ${fix.join('\n- ')}`);
   if (pages.length) sections.push(`Page objects (src/pages):\n- ${pages.join('\n- ')}`);
   if (stepList.length) sections.push(`Existing step definitions (REUSE verbatim; do NOT redefine):\n- ${stepList.join('\n- ')}`);
