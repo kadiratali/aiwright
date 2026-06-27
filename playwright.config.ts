@@ -48,8 +48,14 @@ export default defineConfig({
   // so `npm test` / ai:analyze keep reading reports/cucumber-report.json as before.
   reporter: [
     ['list'],
-    cucumberReporter('json', { outputFile: `reports/${REPORT_NAME}.json` }),
-    cucumberReporter('html', { outputFile: `reports/${REPORT_NAME}.html` })
+    // Allure is the human-facing report for BOTH lanes (UI + API): history, per-step detail,
+    // traces/screenshots attached on failure. Results accumulate in reports/allure-results;
+    // render with `npm run report`.
+    ['allure-playwright', { resultsDir: 'reports/allure-results', detail: true, suiteTitle: true }],
+    // Cucumber JSON is kept as the MACHINE feed for the AI pipeline only (not a report you open):
+    // failureAnalyzer.extractFailures reads it for `analyze` / `heal-selectors` / `heal-contract`.
+    // It is a single file overwritten each run (no staleness), unlike the accumulating Allure dir.
+    cucumberReporter('json', { outputFile: `reports/${REPORT_NAME}.json` })
   ],
   use: {
     baseURL: process.env.BASE_URL ?? 'https://getmobil.com',
