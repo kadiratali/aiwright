@@ -12,6 +12,7 @@
     "test:ui": "bddgen && playwright test --ui",
     "report": "allure generate reports/allure-results --clean -o reports/allure-report && allure open reports/allure-report",
     "web": "ts-node src/web/server.ts",
+    "ai:init": "ts-node src/cli/index.ts init",
     "ai:agent": "ts-node src/cli/index.ts agent",
     "ai:design": "ts-node src/cli/index.ts design",
     "ai:inspect": "ts-node src/cli/index.ts inspect",
