@@ -55,6 +55,17 @@ app.get('/api/products/:id', (req, res) => {
   res.json(product);
 });
 
+app.get('/api/categories', (_req, res) => {
+  const counts = new Map<string, number>();
+  for (const p of CATALOG) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
+  const categories = [...counts.entries()].map(([slug, count]) => ({
+    slug,
+    name: slug.charAt(0).toLocaleUpperCase('tr') + slug.slice(1),
+    count
+  }));
+  res.json({ total: categories.length, categories });
+});
+
 app.listen(PORT, () => {
   console.log(`Mock search API listening on http://localhost:${PORT}`);
 });

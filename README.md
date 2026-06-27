@@ -205,9 +205,9 @@ sibling. New page objects come with a fixture-registration snippet in the output
 ### `run` + `analyze`
 
 `run` executes the scenarios in a real browser and retries on failure to tell a **flaky**
-scenario (passes on re-run) from a **consistent** one. `analyze` reads the Cucumber report
-and classifies each failure as `app-bug | test-bug | flaky | environment` with a root cause
-and a concrete fix.
+scenario (passes on re-run) from a **consistent** one. `analyze` reads the run's results and
+classifies each failure as `app-bug | test-bug | flaky | environment` with a root cause and a
+concrete fix.
 
 ```bash
 npm test           # all scenarios (parallel)
@@ -219,12 +219,20 @@ npm run ai:analyze # → reports/ai-analysis.md
 ## Running tests
 
 ```bash
-npm test                  # all scenarios (parallel)
+npm test                  # all scenarios (UI + API, parallel) → one Allure result set
+npm run test:api          # only the @api lane (browserless)
 npm run test:smoke        # only @smoke tagged
 npm run test:ui           # Playwright UI mode
 HEADLESS=false npm test   # watch the browser
-npm run report            # open the Cucumber HTML report
+npm run report            # generate + open the Allure report
 ```
+
+> **Reporting:** [Allure](https://allurereport.org/) is the human-facing report for both lanes
+> (UI + API) — run history, per-step detail, and traces/screenshots attached on failure. The test
+> scripts clear `reports/allure-results` first, so `npm test` (which runs both projects) gives one
+> combined report; `npm run report` renders it (needs Java for the Allure CLI). A Cucumber JSON
+> (`reports/*-report.json`) is still emitted, but only as the machine feed the AI pipeline reads
+> (`analyze` / `heal-selectors` / `heal-contract`) — not a report you open.
 
 > **CI note:** `npm test` targets the live app (`https://getmobil.com`). Public sites can sit
 > behind bot challenges that block data-centre IPs (e.g. CI runners), so the browser tests
@@ -240,7 +248,7 @@ lanes share the `features/` tree and are split by tag: `@api` scenarios run in t
 Playwright project (no browser), everything else in `chromium`.
 
 ```bash
-npm run test:api          # @api scenarios only (browserless) → reports/api-report.{json,html}
+npm run test:api          # @api scenarios only (browserless) → Allure results + cucumber JSON feed
 npm run mock:api          # run the local mock API standalone (otherwise auto-booted)
 ```
 
@@ -368,8 +376,9 @@ giving a number to "how well does it work" instead of a vibe.
 - [x] **agent** — autonomous orchestrator over the whole pipeline, with guardrails
 - [x] **self-healing** — compile (`heal`) + runtime selector (`heal-selectors`) + runtime contract (`heal-contract`)
 - [x] **API lane** — browserless `APIRequestContext` suite with `probe` (OpenAPI → endpoint map) and `heal-contract`
+- [x] **`generate` API mode** — endpoint map → @api feature + steps + client/contract files (build API suites end to end)
 - [x] CI/CD integration (GitHub Actions: type-check + redaction gate)
-- [ ] `generate` API mode — endpoint map → API feature + client objects (build API suites end to end, not just heal them)
+- [x] **Allure reporting** — combined UI + API report (history, steps, traces/screenshots); cucumber JSON kept as the AI feed
 - [ ] human-approval web UI over the agent loop (surface run state + confirm/escalate gates)
 - [ ] Jira integration (pull stories, write results back)
 - [ ] MCP server (secure tool access layer)

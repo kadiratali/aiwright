@@ -2,6 +2,7 @@ import { test as base } from 'playwright-bdd';
 import type { APIRequestContext } from '@playwright/test';
 import { SearchApi } from './clients/SearchApi';
 import { ProductApi } from './clients/ProductApi';
+import { CategoriesApi } from './clients/CategoriesApi';
 
 /**
  * Fixtures for the browserless `api` project (see playwright.config.ts). The `apiClient` is an
@@ -27,6 +28,7 @@ type ApiFixtures = {
   apiClient: APIRequestContext;
   searchApi: SearchApi;
   productApi: ProductApi;
+  categoriesApi: CategoriesApi;
   apiState: { last?: ApiResponse };
 };
 
@@ -38,5 +40,6 @@ export const test = base.extend<ApiFixtures>({
   },
   searchApi: async ({ apiClient }, use) => use(new SearchApi(apiClient)),
   productApi: async ({ apiClient }, use) => use(new ProductApi(apiClient)),
+  categoriesApi: async ({ apiClient }, use) => use(new CategoriesApi(apiClient)),
   apiState: async ({}, use) => use({})
 });

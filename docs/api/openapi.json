@@ -50,6 +50,15 @@
           "404": { "description": "No product with that id", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
+    },
+    "/api/categories": {
+      "get": {
+        "operationId": "listCategories",
+        "summary": "List product categories with counts",
+        "responses": {
+          "200": { "description": "Categories listed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CategoriesResponse" } } } }
+        }
+      }
     }
   },
   "components": {
@@ -72,6 +81,23 @@
           "term": { "type": "string" },
           "total": { "type": "integer", "minimum": 0 },
           "items": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "required": ["slug", "name", "count"],
+        "properties": {
+          "slug": { "type": "string", "example": "telefon" },
+          "name": { "type": "string", "example": "Telefon" },
+          "count": { "type": "integer", "minimum": 0, "example": 2 }
+        }
+      },
+      "CategoriesResponse": {
+        "type": "object",
+        "required": ["total", "categories"],
+        "properties": {
+          "total": { "type": "integer", "minimum": 0 },
+          "categories": { "type": "array", "items": { "$ref": "#/components/schemas/Category" } }
         }
       },
       "Error": {
