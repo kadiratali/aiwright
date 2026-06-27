@@ -12,6 +12,7 @@ import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 import { repairSelectors, type SourceFile } from '../ai/selectorHealer';
 import { repairContract } from '../ai/contractHealer';
+import { config } from '../config';
 
 import type { RunState, StepKind } from './state';
 
@@ -313,7 +314,7 @@ export async function executeTool(
 
     case 'probe': {
       const { specPath, baseUrl, live } = (input as ProbeInput) ?? {};
-      const map = await probeApi(specPath ?? 'docs/api/openapi.json', { baseUrl, live, rootDir });
+      const map = await probeApi(specPath ?? config.openApiSpec, { baseUrl, live, rootDir });
       const file = writeEndpointMap(map, rootDir);
       state.endpointMapPath = file;
       const verified = map.endpoints.filter((e) => e.observed && e.observed.status > 0).length;
@@ -515,7 +516,7 @@ export async function executeTool(
       }
 
       // Re-fetch the live response from the failing endpoint → the real, current shape.
-      const apiBase = baseUrl ?? process.env.API_BASE_URL ?? 'http://localhost:4010';
+      const apiBase = baseUrl ?? config.apiBaseUrl;
       let fresh: { url: string; status: number; body: unknown };
       const ctx = await request.newContext({ baseURL: apiBase });
       try {

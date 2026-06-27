@@ -4,6 +4,7 @@ import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGener
 import { designTests, writeDesignReport, capScenarios } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { probeApi, writeEndpointMap } from '../ai/specProbe';
+import { config } from '../config';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 import { runAgent } from '../agent/orchestrator';
@@ -181,7 +182,7 @@ async function main() {
         args.splice(bi, 2);
       }
       const live = takeBool('--live');
-      const specPath = args.join(' ').trim() || 'docs/api/openapi.json';
+      const specPath = args.join(' ').trim() || config.openApiSpec;
 
       console.log(`Probing ${specPath}${live ? ` (live against ${baseUrl ?? 'the spec server'})` : ' (spec only)'}...`);
       const map = await probeApi(specPath, { baseUrl, live });

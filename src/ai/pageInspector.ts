@@ -4,7 +4,7 @@ import { chromium, Page } from '@playwright/test';
 import * as dotenv from 'dotenv';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
-import { TARGET_URL as BASE_URL } from '../config';
+import { config } from '../config';
 
 dotenv.config();
 
@@ -93,9 +93,10 @@ function escAttr(v: string): string {
  * assertable elements with an AT-style role + accessible name as the primary
  * descriptor. Closed shadow roots are unreachable and counted as a warning.
  */
-function collectScript(maxEls: number): string {
+function collectScript(maxEls: number, testIdAttrs: string[]): string {
   return `(() => {
     const MAX = ${maxEls};
+    const TESTID_ATTRS = ${JSON.stringify(testIdAttrs)};
     const out = [];
     let closedShadow = 0;
     let iframeCount = 0;
@@ -154,11 +155,10 @@ function collectScript(maxEls: number): string {
       return st.visibility !== 'hidden' && st.display !== 'none';
     };
 
-    // Common test-id attribute conventions, in priority order. Recognising hyphenated
-    // (data-test-id), camel-ish (data-testid) and other framework variants — not just
-    // data-test — means a stable hook like data-test-id="selenium-..." is used verbatim
-    // instead of falling back to a fragile structural selector.
-    const TESTID_ATTRS = ['data-test', 'data-testid', 'data-test-id', 'data-cy', 'data-qa', 'data-automation-id', 'data-e2e'];
+    // test-id attribute conventions come from aiwright.config.ts (TESTID_ATTRS, injected above),
+    // in priority order. Recognising hyphenated (data-test-id), camel-ish (data-testid) and other
+    // framework variants — not just data-test — means a stable hook like data-test-id="selenium-..."
+    // is used verbatim instead of falling back to a fragile structural selector.
     const ownTestId = (el) => {
       for (const a of TESTID_ATTRS) {
         const v = el.getAttribute(a);
@@ -192,7 +192,8 @@ function collectScript(maxEls: number): string {
       return parts.join(' > ');
     };
 
-    const MATCH = 'a[href],button,input,select,textarea,summary,[role],[data-test],[data-testid],[data-test-id],[data-cy],[data-qa],[data-automation-id],[data-e2e],h1,h2,h3,[aria-label]';
+    const TESTID_SELECTORS = TESTID_ATTRS.map((a) => '[' + a + ']').join(',');
+    const MATCH = 'a[href],button,input,select,textarea,summary,[role],' + TESTID_SELECTORS + ',h1,h2,h3,[aria-label]';
 
     const walk = (root) => {
       if (out.length >= MAX) return;
@@ -305,7 +306,7 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
 
   const url = /^https?:\/\//.test(target) ? target : target.startsWith('/') ? target : `/${target}`;
   const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL: BASE_URL });
+  const context = await browser.newContext({ baseURL: config.targetUrl });
   const page = await context.newPage();
   const warnings: string[] = [];
 
@@ -322,7 +323,7 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
     await page.waitForLoadState('networkidle').catch(() => warnings.push('networkidle not reached; page may be still loading'));
 
     const title = await page.title();
-    const collected = (await page.evaluate(collectScript(MAX_ELEMENTS))) as {
+    const collected = (await page.evaluate(collectScript(MAX_ELEMENTS, config.testIdAttributes))) as {
       els: RawEl[];
       closedShadow: number;
       iframeCount: number;

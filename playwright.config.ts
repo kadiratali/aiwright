@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import { defineBddProject, cucumberReporter } from 'playwright-bdd';
 import * as dotenv from 'dotenv';
+import { config as project } from './src/config';
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ const apiProject = defineBddProject({
   tags: '@api'
 });
 
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:4010';
+const API_BASE_URL = project.apiBaseUrl;
 
 // Report file basename (under reports/). test:api overrides this to keep its report separate.
 const REPORT_NAME = process.env.REPORT_NAME ?? 'cucumber-report';
@@ -58,7 +59,7 @@ export default defineConfig({
     cucumberReporter('json', { outputFile: `reports/${REPORT_NAME}.json` })
   ],
   use: {
-    baseURL: process.env.BASE_URL ?? 'https://getmobil.com',
+    baseURL: project.targetUrl,
     headless: process.env.HEADLESS !== 'false',
     viewport: { width: 1280, height: 720 },
     navigationTimeout: CI ? 30_000 : 15_000,
