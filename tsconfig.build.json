@@ -1,0 +1,19 @@
+{
+  // Compiles ONLY the framework (the pipeline + CLI) to dist/ for publishing. The getmobil
+  // example content (page objects, suites, mock, features) is intentionally excluded — it ships
+  // as a repo demo, not in the package.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": [
+    "src/ai/**/*.ts",
+    "src/agent/**/*.ts",
+    "src/cli/**/*.ts",
+    "src/config.ts",
+    "src/fixtures/data.ts",
+    "aiwright.config.ts"
+  ]
+}

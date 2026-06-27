@@ -59,7 +59,16 @@ flowchart TD
 ```bash
 npm install
 npx playwright install chromium
-cp .env.example .env      # set ANTHROPIC_API_KEY (TARGET_URL defaults to https://getmobil.com)
+cp .env.example .env      # set ANTHROPIC_API_KEY
+```
+
+**Retargeting to your app** — everything app-specific lives in one file, **`aiwright.config.ts`**
+(`targetUrl`, `apiBaseUrl`, `openApiSpec`, `testIdAttributes`); env vars
+(`TARGET_URL`/`BASE_URL`, `API_BASE_URL`, `OPENAPI_SPEC`) override it at runtime. To scaffold the
+project-owned layer for a fresh target (config, `.env`, a starter story, the directory layout):
+
+```bash
+npm run ai:init -- [dir] --target https://your-app.com --api https://api.your-app.com
 ```
 
 ---

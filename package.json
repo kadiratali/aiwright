@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "AI QA Agent - TypeScript + Playwright + Cucumber BDD framework with Claude-powered test generation and failure analysis",
   "license": "MIT",
+  "bin": {
+    "aiwright": "dist/src/cli/index.js"
+  },
+  "main": "dist/src/cli/index.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "test": "rm -rf reports/allure-results && bddgen && playwright test",
     "test:api": "rm -rf reports/allure-results && bddgen && REPORT_NAME=api-report playwright test --project=api",
@@ -12,6 +19,7 @@
     "test:ui": "bddgen && playwright test --ui",
     "report": "allure generate reports/allure-results --clean -o reports/allure-report && allure open reports/allure-report",
     "web": "ts-node src/web/server.ts",
+    "ai:init": "ts-node src/cli/index.ts init",
     "ai:agent": "ts-node src/cli/index.ts agent",
     "ai:design": "ts-node src/cli/index.ts design",
     "ai:inspect": "ts-node src/cli/index.ts inspect",
@@ -19,6 +27,8 @@
     "ai:generate": "ts-node src/cli/index.ts generate",
     "ai:analyze": "ts-node src/cli/index.ts analyze",
     "typecheck": "tsc --noEmit",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "verify:redaction": "ts-node scripts/redact-check.ts",
     "eval": "ts-node scripts/eval.ts"
   },

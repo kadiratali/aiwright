@@ -3,6 +3,7 @@ import type { APIRequestContext } from '@playwright/test';
 import { SearchApi } from './clients/SearchApi';
 import { ProductApi } from './clients/ProductApi';
 import { CategoriesApi } from './clients/CategoriesApi';
+import { config } from '../config';
 
 /**
  * Fixtures for the browserless `api` project (see playwright.config.ts). The `apiClient` is an
@@ -16,7 +17,7 @@ import { CategoriesApi } from './clients/CategoriesApi';
  * API client fixtures are wired here as they are generated (one `xxxApi` per resource client),
  * mirroring how page-object fixtures are wired in src/fixtures/index.ts.
  */
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:4010';
+const API_BASE_URL = config.apiBaseUrl;
 
 /** The last API response, shared across steps. `body` is unknown — Then steps narrow it. */
 export interface ApiResponse {

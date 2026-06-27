@@ -1,9 +1,12 @@
+#!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
 import { generateTests, writeArtifacts, correctArtifacts } from '../ai/testGenerator';
 import { designTests, writeDesignReport, capScenarios } from '../ai/testDesigner';
 import { inspectPage, writeSelectorMap } from '../ai/pageInspector';
 import { probeApi, writeEndpointMap } from '../ai/specProbe';
+import { config } from '../config';
+import { scaffold } from './scaffold';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { extractFailures, analyzeFailures, writeAnalysisReport } from '../ai/failureAnalyzer';
 import { runAgent } from '../agent/orchestrator';
@@ -12,6 +15,12 @@ const USAGE = `
 AI QA Agent CLI
 
 Usage:
+  npm run ai:init -- [dir] [--target <url>] [--api <url>] [--force]
+      Scaffolds the project-owned layer for a new target: aiwright.config.ts (the one file
+      you edit to retarget), .env, a starter stories/example.md, and the directory layout the
+      pipeline writes into. Non-destructive (skips existing files unless --force). Defaults to
+      the current directory.
+
   npm run ai:agent -- <user-story.txt | "user story text"> [--auto]
       Runs the orchestrator: from the story, the agent plans and sequences the
       tools (design -> inspect -> generate -> verify -> run -> analyze) on its own,
@@ -76,6 +85,49 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
 
   switch (command) {
+    case 'init': {
+      const args = [...rest];
+      const takeFlag = (flag: string): string | undefined => {
+        const i = args.indexOf(flag);
+        if (i === -1) return undefined;
+        const value = args[i + 1];
+        if (!value) {
+          console.error(`Error: provide a value for ${flag}.\n` + USAGE);
+          process.exit(1);
+        }
+        args.splice(i, 2);
+        return value;
+      };
+      const takeBool = (flag: string): boolean => {
+        const i = args.indexOf(flag);
+        if (i === -1) return false;
+        args.splice(i, 1);
+        return true;
+      };
+      const targetUrl = takeFlag('--target');
+      const apiBaseUrl = takeFlag('--api');
+      const force = takeBool('--force');
+      const dir = args.join(' ').trim() || '.';
+      const rootDir = path.resolve(process.cwd(), dir);
+
+      console.log(`Scaffolding aiwright project into ${rootDir}${force ? ' (--force: overwriting)' : ''}...`);
+      const result = scaffold(rootDir, { targetUrl, apiBaseUrl, force });
+
+      if (result.created.length) {
+        console.log('\nCreated:');
+        for (const f of result.created) console.log(`  + ${f}`);
+      }
+      if (result.skipped.length) {
+        console.log('\nSkipped (already exist — use --force to overwrite):');
+        for (const f of result.skipped) console.log(`  · ${f}`);
+      }
+      console.log('\nNext steps:');
+      console.log('  1. Set ANTHROPIC_API_KEY in .env');
+      console.log('  2. Edit aiwright.config.ts for your app (targetUrl / apiBaseUrl)');
+      console.log('  3. npm run ai:agent -- stories/example.md');
+      break;
+    }
+
     case 'agent': {
       const args = [...rest];
       const ai = args.indexOf('--auto');
@@ -181,7 +233,7 @@ async function main() {
         args.splice(bi, 2);
       }
       const live = takeBool('--live');
-      const specPath = args.join(' ').trim() || 'docs/api/openapi.json';
+      const specPath = args.join(' ').trim() || config.openApiSpec;
 
       console.log(`Probing ${specPath}${live ? ` (live against ${baseUrl ?? 'the spec server'})` : ' (spec only)'}...`);
       const map = await probeApi(specPath, { baseUrl, live });

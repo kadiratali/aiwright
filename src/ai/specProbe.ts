@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { request } from '@playwright/test';
 import * as dotenv from 'dotenv';
+import { config } from '../config';
 
 dotenv.config();
 
@@ -95,7 +96,7 @@ export async function probeApi(specPath: string, opts: ProbeOptions = {}): Promi
 
   const warnings: string[] = [];
   const baseUrl =
-    opts.baseUrl ?? spec.servers?.[0]?.url ?? process.env.API_BASE_URL ?? 'http://localhost:4010';
+    opts.baseUrl ?? spec.servers?.[0]?.url ?? config.apiBaseUrl;
 
   const endpoints: EndpointEntry[] = [];
   for (const [p, pathItem] of Object.entries<any>(spec.paths ?? {})) {
