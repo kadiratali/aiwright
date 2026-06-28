@@ -68,13 +68,31 @@ export interface ProbeOptions {
   rootDir?: string;
 }
 
-/** Short, human-readable schema name for a response object (resolves $ref / array items). */
+/**
+ * Short, human-readable schema name for a response object (resolves $ref / array items).
+ * Handles both OpenAPI 3.x (response.content['application/json'].schema) and Swagger 2.0
+ * (response.schema directly).
+ */
 function schemaName(responseObj: any): string | undefined {
-  const schema = responseObj?.content?.['application/json']?.schema;
+  const schema = responseObj?.content?.['application/json']?.schema ?? responseObj?.schema;
   if (!schema) return undefined;
   if (schema.$ref) return schema.$ref.split('/').pop();
   if (schema.type === 'array' && schema.items?.$ref) return `${schema.items.$ref.split('/').pop()}[]`;
+  if (schema.type === 'array' && schema.items?.type) return `${schema.items.type}[]`;
   return schema.type;
+}
+
+/**
+ * Resolves the base URL from a spec: OpenAPI 3.x uses servers[0].url; Swagger 2.0 builds it from
+ * schemes + host + basePath. Falls back to the configured apiBaseUrl when neither is present.
+ */
+function baseUrlFromSpec(spec: any, fallback: string): string {
+  if (spec.servers?.[0]?.url) return spec.servers[0].url;
+  if (spec.host) {
+    const scheme = (Array.isArray(spec.schemes) && spec.schemes[0]) || 'https';
+    return `${scheme}://${spec.host}${spec.basePath ?? ''}`;
+  }
+  return fallback;
 }
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
@@ -95,8 +113,10 @@ export async function probeApi(specPath: string, opts: ProbeOptions = {}): Promi
   }
 
   const warnings: string[] = [];
-  const baseUrl =
-    opts.baseUrl ?? spec.servers?.[0]?.url ?? config.apiBaseUrl;
+  const baseUrl = opts.baseUrl ?? baseUrlFromSpec(spec, config.apiBaseUrl);
+  if (spec.swagger && !spec.openapi) {
+    warnings.push(`Swagger 2.0 spec detected (v${spec.swagger}); parsed for endpoints/schemas.`);
+  }
 
   const endpoints: EndpointEntry[] = [];
   for (const [p, pathItem] of Object.entries<any>(spec.paths ?? {})) {
@@ -109,11 +129,12 @@ export async function probeApi(specPath: string, opts: ProbeOptions = {}): Promi
         operationId: op.operationId,
         summary: op.summary,
         params: (op.parameters ?? []).map((pr: any) => ({
+          // OpenAPI 3.x: type/example under pr.schema; Swagger 2.0: type/default on the param itself.
           name: pr.name,
           in: pr.in,
           required: !!pr.required,
-          type: pr.schema?.type,
-          example: pr.schema?.example ?? pr.example
+          type: pr.schema?.type ?? pr.type,
+          example: pr.schema?.example ?? pr.example ?? pr.default
         })),
         responses: Object.keys(op.responses ?? {}).map((code) => ({
           status: code,
