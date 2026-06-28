@@ -60,7 +60,7 @@
           <div class="hint">We parse the endpoints and ground API scenarios (statuses, contracts, validation) in them. Provide a site URL, an API spec, or both.</div>
         </div>
         <div class="row">
-          <label for="stories">Your user stories / requirements</label>
+          <label for="stories">Your user stories / requirements <span class="muted">(optional)</span></label>
           <textarea id="stories" placeholder="As a visitor, I can search for a product from the header and see matching results.
 A nonsense query should show a clear 'no results' state, not an error."></textarea>
         </div>
@@ -135,12 +135,14 @@ A nonsense query should show a clear 'no results' state, not an error."></textar
         const apiSpec = $('apiSpec').value.trim();
         const stories = $('stories').value.trim();
         $('out').innerHTML = '';
-        if (!stories) { $('status').textContent = 'Enter your stories.'; return; }
-        if (!siteUrl && !apiSpec) { $('status').textContent = 'Enter a site URL, an API spec, or both.'; return; }
+        if (!siteUrl && !apiSpec && !stories) { $('status').textContent = 'Enter a site URL, an API spec, or your stories.'; return; }
 
         $('go').disabled = true;
-        const what = siteUrl && apiSpec ? 'Inspecting your site + probing your API' : siteUrl ? 'Inspecting your site' : 'Probing your API';
-        $('status').innerHTML = '<span class="spinner"></span>' + what + ', then designing scenarios…';
+        const what = siteUrl && apiSpec ? 'Inspecting your site + probing your API, then designing scenarios…'
+          : siteUrl ? 'Inspecting your site, then designing scenarios…'
+          : apiSpec ? 'Probing your API, then designing scenarios…'
+          : 'Designing scenarios…';
+        $('status').innerHTML = '<span class="spinner"></span>' + what;
         try {
           const r = await fetch('/api/scenarios', {
             method: 'POST',

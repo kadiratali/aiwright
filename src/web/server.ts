@@ -121,12 +121,10 @@ app.post(
     const stories = String(req.body?.stories ?? '').trim();
     const siteUrl = String(req.body?.siteUrl ?? '').trim();
     const apiSpec = String(req.body?.apiSpec ?? '').trim();
-    if (!stories) {
-      res.status(400).json({ error: 'Provide your stories.' });
-      return;
-    }
-    if (!siteUrl && !apiSpec) {
-      res.status(400).json({ error: 'Provide a site URL, an API spec, or both.' });
+    // Stories are optional: a site or an API spec is enough to design from (the system is the
+    // requirement). At least one of the three must be present.
+    if (!stories && !siteUrl && !apiSpec) {
+      res.status(400).json({ error: 'Provide a site URL, an API spec, or your stories.' });
       return;
     }
 

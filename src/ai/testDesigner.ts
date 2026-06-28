@@ -106,11 +106,21 @@ export async function designTests(
 
   // Before going to the LLM: load known secret values + redact the story.
   registerAllSensitive();
-  const safeStory = redact(userStory);
+  const safeStory = redact(userStory).trim();
+  const hasContext = !!siteContext?.trim();
+  if (!safeStory && !hasContext) {
+    throw new Error('Provide a user story or a system context (site/API) to design tests from.');
+  }
 
-  let content = `Produce a test design for this user story:\n\n${safeStory}`;
-  if (siteContext?.trim()) {
-    content += `\n\n${SITE_CONTEXT_INSTRUCTION}\n\nLIVE CONTEXT (real UI elements and/or API endpoints):\n\n${redact(siteContext)}`;
+  // With no explicit story, the inspected/probed system IS the requirement — derive the scenarios
+  // from its real capabilities instead of a narrative.
+  let content = safeStory
+    ? `Produce a test design for this user story:\n\n${safeStory}`
+    : `Produce a test design for the system under test. No explicit user story was given — derive the ` +
+      `scenarios from the LIVE CONTEXT below: cover each capability's happy path, key negatives, and ` +
+      `edge/boundary cases, and for APIs also the status codes, contract/response shape, and input validation.`;
+  if (hasContext) {
+    content += `\n\n${SITE_CONTEXT_INSTRUCTION}\n\nLIVE CONTEXT (real UI elements and/or API endpoints):\n\n${redact(siteContext!)}`;
   }
   if (maxScenarios && maxScenarios > 0) {
     // Quick-trial mode: keep the design (and therefore generation) small and fast.
