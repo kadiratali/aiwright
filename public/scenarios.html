@@ -105,6 +105,12 @@
       textarea { resize: vertical; min-height: 64px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.6; }
       #stories { font-family: "Inter", sans-serif; font-size: 14px; min-height: 84px; }
       .hint { color: var(--faint); font-size: 12px; margin-top: 8px; }
+      .login { margin-top: 10px; }
+      .login summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; user-select: none; padding: 4px 0; }
+      .login summary::-webkit-details-marker { display: none; }
+      .login summary:hover { color: var(--text); }
+      .login[open] summary { color: var(--text); margin-bottom: 8px; }
+      .login-fields { display: grid; gap: 8px; }
 
       .console-foot { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
       .btn { border: 0; border-radius: 11px; padding: 11px 20px; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
@@ -241,6 +247,15 @@
               Site URL <span class="opt">· UI, optional</span>
             </div>
             <input id="siteUrl" type="url" placeholder="https://your-app.com" />
+            <details class="login">
+              <summary>🔒 Requires login? <span class="opt">· optional</span></summary>
+              <div class="login-fields">
+                <input id="loginUrl" type="url" placeholder="Login URL — https://your-app.com/login" />
+                <input id="loginUser" type="text" placeholder="Username or email" autocomplete="off" />
+                <input id="loginPass" type="password" placeholder="Password" autocomplete="off" />
+              </div>
+              <div class="hint">We log in once and reuse the session to inspect + test behind the wall. Credentials are used only for this run, never stored.</div>
+            </details>
           </div>
           <div class="field">
             <div class="field-label">
@@ -415,17 +430,19 @@
         const apiSpec = $('apiSpec').value.trim();
         const stories = $('stories').value.trim();
         if (!siteUrl && !apiSpec && !stories) { $('status').textContent = 'Enter a site URL, an API spec, or your stories.'; return; }
-        state.ctx = { siteUrl, apiSpec, stories };
+        const loginUrl = $('loginUrl').value.trim(), loginUser = $('loginUser').value.trim(), loginPass = $('loginPass').value;
+        const auth = (loginUrl && loginUser && loginPass) ? { loginUrl, username: loginUser, password: loginPass } : undefined;
+        state.ctx = { siteUrl, apiSpec, stories, auth };
         $('actionbar').classList.remove('show');
         $('go').disabled = true;
-        const what = siteUrl && apiSpec ? 'Inspecting your site + probing your API' : siteUrl ? 'Inspecting your site' : apiSpec ? 'Probing your API' : 'Reading your stories';
-        $('status').innerHTML = '<span class="spinner"></span>' + what + ', then designing…';
+        const what = (auth ? 'Logging in, then ' : '') + (siteUrl && apiSpec ? 'inspecting your site + probing your API' : siteUrl ? 'inspecting your site' : apiSpec ? 'probing your API' : 'reading your stories');
+        $('status').innerHTML = '<span class="spinner"></span>' + what.charAt(0).toUpperCase() + what.slice(1) + ', then designing…';
         $('out').innerHTML = '<div class="section-h"><h2>Designing scenarios…</h2></div>' +
           Array.from({ length: 4 }).map(() => '<div class="sk"><div class="l" style="width:42%"></div><div class="l" style="width:88%"></div><div class="l" style="width:70%"></div></div>').join('');
         try {
           const r = await fetch('/api/scenarios', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ siteUrl, apiSpec, stories })
+            body: JSON.stringify({ siteUrl, apiSpec, stories, auth })
           });
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'Request failed');

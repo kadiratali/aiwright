@@ -7,6 +7,7 @@ import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
 import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
 import { inspectPage, SelectorMap } from '../ai/pageInspector';
+import { authenticate, type AuthOptions, type StorageState } from '../ai/auth';
 import { probeApi, EndpointMap } from '../ai/specProbe';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { runAgent } from '../agent/orchestrator';
@@ -120,10 +121,18 @@ async function probeSpecInput(input: string): Promise<EndpointMap> {
   }
 }
 
-// PRODUCT flow: { stories, siteUrl?, apiSpec? } -> scenarios. Grounds the test design in the real
-// system — a live UI inspect (siteUrl), an OpenAPI probe (apiSpec = URL or pasted JSON), or both —
-// and returns the scenarios (no code written). "Enter your site and/or API, share your stories,
-// get the scenarios."
+/** Reads optional login credentials from a request body. */
+function authFrom(body: any): AuthOptions | undefined {
+  const a = body?.auth;
+  if (a && a.loginUrl && a.username && a.password) {
+    return { loginUrl: String(a.loginUrl), username: String(a.username), password: String(a.password) };
+  }
+  return undefined;
+}
+
+// PRODUCT flow: { stories, siteUrl?, apiSpec?, auth? } -> scenarios. Grounds the test design in the
+// real system — a live UI inspect (siteUrl, authenticated if login creds are given), an OpenAPI
+// probe (apiSpec), or both — and returns the scenarios (no code written).
 app.post(
   '/api/scenarios',
   handler(async (req, res) => {
@@ -146,7 +155,9 @@ app.post(
         res.status(400).json({ error: 'Site URL must start with http:// or https://' });
         return;
       }
-      const map = await inspectPage(siteUrl);
+      const auth = authFrom(req.body);
+      const storageState = auth ? await authenticate(auth) : undefined;
+      const map = await inspectPage(siteUrl, { storageState });
       contexts.push(siteContextFrom(map));
       site = { title: map.title, url: map.url, elements: map.entries.length, warnings: map.warnings };
     }
@@ -268,6 +279,7 @@ export default defineConfig({
   reporter: [['list'], ['allure-playwright', { resultsDir: 'reports/allure-results' }]],
   use: {
     baseURL: process.env.TARGET_URL,
+    storageState: process.env.NQ_STORAGE_STATE || undefined,
     headless: true,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
@@ -335,12 +347,26 @@ function emitRun(job: RunJob, e: any): void {
 }
 
 /** The actual pipeline, emitting a stage event before each step so the UI shows live progress. */
-async function runSuiteJob(job: RunJob, args: { siteUrl: string; stories: string; approved: TestDesign }): Promise<void> {
-  const { siteUrl, stories, approved } = args;
+async function runSuiteJob(
+  job: RunJob,
+  args: { siteUrl: string; stories: string; approved: TestDesign; auth?: AuthOptions }
+): Promise<void> {
+  const { siteUrl, stories, approved, auth } = args;
   const { ws, id } = setupWorkspace(process.cwd());
   try {
+    // 0) Log in first (if credentials given) so inspect + run both see the app behind the wall.
+    let storageState: StorageState | undefined;
+    let stateFile: string | undefined;
+    if (auth) {
+      emitRun(job, { type: 'stage', stage: 'login', label: `Logging in at ${auth.loginUrl}…` });
+      storageState = await authenticate(auth);
+      stateFile = path.join(ws, 'auth-state.json');
+      fs.writeFileSync(stateFile, JSON.stringify(storageState));
+      emitRun(job, { type: 'stage', stage: 'login', done: true, label: `Logged in — ${storageState.cookies.length} cookie(s)` });
+    }
+
     emitRun(job, { type: 'stage', stage: 'inspect', label: `Inspecting ${siteUrl}…` });
-    const map = await inspectPage(siteUrl);
+    const map = await inspectPage(siteUrl, { storageState });
     emitRun(job, { type: 'stage', stage: 'inspect', done: true, label: `Inspected — ${map.entries.length} elements found` });
     const mapJson = JSON.stringify(map, null, 2);
 
@@ -367,7 +393,11 @@ async function runSuiteJob(job: RunJob, args: { siteUrl: string; stories: string
 
     const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
     emitRun(job, { type: 'stage', stage: 'run', label: `Running “${title}” against ${siteUrl}…` });
-    const run = runFeature(title, ws, { TARGET_URL: siteUrl, BASE_URL: siteUrl });
+    const run = runFeature(title, ws, {
+      TARGET_URL: siteUrl,
+      BASE_URL: siteUrl,
+      ...(stateFile ? { NQ_STORAGE_STATE: stateFile } : {})
+    });
     emitRun(job, {
       type: 'stage',
       stage: 'run',
@@ -415,6 +445,7 @@ app.post(
       return;
     }
     const approved: TestDesign = { ...design, scenarios };
+    const auth = authFrom(req.body);
 
     const id = crypto.randomUUID();
     const job: RunJob = { id, events: [], clients: [], finished: false };
@@ -422,7 +453,7 @@ app.post(
     res.json({ runId: id });
 
     // Fire and forget; progress + result flow through SSE, not this HTTP response.
-    runSuiteJob(job, { siteUrl, stories, approved }).catch((err) =>
+    runSuiteJob(job, { siteUrl, stories, approved, auth }).catch((err) =>
       emitRun(job, { type: 'error', message: err?.message ?? String(err) })
     );
   })
