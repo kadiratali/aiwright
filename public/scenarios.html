@@ -267,10 +267,14 @@
       </main>
 
       <div class="actionbar" id="actionbar">
-        <div class="info"><b id="selCount">0 selected</b><span id="genStatus">Pick the scenarios you want, then generate the suite.</span></div>
-        <button id="gen" class="btn btn-primary" disabled>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v18M3 12h18"/></svg>
+        <div class="info"><b id="selCount">0 selected</b><span id="genStatus">Pick the scenarios, then run them against your site.</span></div>
+        <button id="gen" class="btn btn-ghost" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v18M3 12h18"/></svg>
           Generate suite
+        </button>
+        <button id="run" class="btn btn-primary" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 4l14 8-14 8V4z"/></svg>
+          Run &amp; report
         </button>
       </div>
     </div>
@@ -324,6 +328,9 @@
         const n = state.selected.size;
         $('selCount').textContent = n + ' selected';
         $('gen').disabled = n === 0;
+        const hasSite = !!(state.ctx && state.ctx.siteUrl);
+        $('run').disabled = n === 0 || !hasSite;
+        $('run').title = hasSite ? 'Run the selected scenarios against your site' : 'Enter a site URL to run UI tests';
         $('actionbar').classList.toggle('show', !!state.data);
         if (n) setStep(2);
       }
@@ -428,7 +435,46 @@
           $('go').disabled = false;
         }
       };
+      async function runSuite() {
+        $('run').disabled = true; $('gen').disabled = true;
+        $('genStatus').innerHTML = '<span class="spinner"></span>Inspecting, generating &amp; running against your site… this can take a couple of minutes.';
+        $('genOut').innerHTML = '';
+        setStep(3);
+        try {
+          const r = await fetch('/api/run-suite', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...state.ctx, design: state.data.design, selected: [...state.selected] })
+          });
+          const res = await r.json();
+          if (!r.ok) throw new Error(res.error || 'Run failed');
+          let h;
+          if (res.stage === 'compile') {
+            h = '<div class="result bad"><div class="head">✗ Generated suite did not compile' +
+              (res.rounds ? '<span class="badge2">' + res.rounds + ' self-correct round(s)</span>' : '') + '</div>' +
+              '<div class="files" style="margin-top:10px;color:#ffc2cd">' + (res.errors || []).map((e) => '<div class="f">' + esc((e.file || '').split('/').pop()) + ':' + e.line + ' ' + esc(e.message) + '</div>').join('') + '</div></div>';
+          } else {
+            const ok = res.ok;
+            h = '<div class="result ' + (ok ? 'ok' : 'bad') + '"><div class="head">' +
+              (ok ? '✓ ' + res.passed + ' scenario(s) passed' : '✗ ' + res.passed + ' passed · ' + res.failed + ' failed') +
+              '<span class="badge2">UI lane</span>' + (res.rounds ? '<span class="badge2">' + res.rounds + ' heal round(s)</span>' : '') + '</div>' +
+              (res.reportUrl
+                ? '<div style="margin-top:14px"><a class="btn btn-primary" href="' + res.reportUrl + '" target="_blank" rel="noopener">Open Allure report ↗</a></div>'
+                : '<div class="files" style="margin-top:10px">Report could not be rendered (is the Allure CLI / Java available?).</div>') +
+              '</div>';
+          }
+          $('genOut').innerHTML = h;
+          $('genStatus').textContent = 'Done.';
+          $('genOut').scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (e) {
+          $('genOut').innerHTML = '<div class="error-card">' + esc(e.message) + '</div>';
+          $('genStatus').textContent = 'Run failed.';
+        } finally {
+          updateBar();
+        }
+      }
+
       $('gen').onclick = generateSuite;
+      $('run').onclick = runSuite;
     </script>
   </body>
 </html>

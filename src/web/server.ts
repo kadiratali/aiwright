@@ -2,17 +2,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
 import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
 import { inspectPage, SelectorMap } from '../ai/pageInspector';
 import { probeApi, EndpointMap } from '../ai/specProbe';
-import { verifyTypeScript } from '../ai/verifier';
+import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { runAgent } from '../agent/orchestrator';
 import { AgentIO, AgentEvent } from '../agent/io';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+// The rendered Allure report (results of a "Run & report") is served here.
+app.use('/report', express.static(path.join(process.cwd(), 'reports', 'allure-report')));
 // Scenario Studio is the home page ('/'); the older code studio (index.html) is retired.
 app.use(express.static(path.join(process.cwd(), 'public'), { index: 'scenarios.html' }));
 
@@ -245,6 +248,91 @@ app.post(
       rounds,
       notes: artifacts.notes,
       verify: { ok: verify.ok, errors: verify.errors }
+    });
+  })
+);
+
+/** Renders the Allure HTML report from reports/allure-results into reports/allure-report. */
+function buildAllureReport(rootDir = process.cwd()): boolean {
+  const local = path.join(rootDir, 'node_modules', '.bin', 'allure');
+  const bin = fs.existsSync(local) ? local : 'allure';
+  try {
+    execFileSync(bin, ['generate', 'reports/allure-results', '--clean', '-o', 'reports/allure-report'], {
+      cwd: rootDir,
+      stdio: 'ignore'
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// PRODUCT flow (run-as-a-service): selected scenarios -> generate a UI suite -> RUN it against the
+// entered site -> render an Allure report. The user takes away results, not code: response carries
+// the pass/fail tally and a link to the hosted report (/report). UI lane only for now.
+app.post(
+  '/api/run-suite',
+  handler(async (req, res) => {
+    const stories = String(req.body?.stories ?? '').trim();
+    const siteUrl = String(req.body?.siteUrl ?? '').trim();
+    const design = req.body?.design as TestDesign | undefined;
+    const selected = (req.body?.selected as number[] | undefined) ?? [];
+    if (!siteUrl || !/^https?:\/\//i.test(siteUrl)) {
+      res.status(400).json({ error: 'A site URL (http/https) is required to run UI tests.' });
+      return;
+    }
+    if (!design) {
+      res.status(400).json({ error: 'Provide the design.' });
+      return;
+    }
+    const scenarios = design.scenarios.filter((_, i) => selected.includes(i));
+    if (scenarios.length === 0) {
+      res.status(400).json({ error: 'Select at least one scenario.' });
+      return;
+    }
+    const approved: TestDesign = { ...design, scenarios };
+
+    // 1) Generate a UI suite grounded in a live inspect of the site.
+    const mapJson = JSON.stringify(await inspectPage(siteUrl), null, 2);
+    const storyText = stories || approved.understanding || approved.title;
+    let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
+    let written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, 'ui');
+    let verify = verifyTypeScript(tsScope(written));
+    let rounds = 0;
+    while (!verify.ok && rounds < 2) {
+      rounds++;
+      artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui'), mapJson, 'ui');
+      written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, 'ui');
+      verify = verifyTypeScript(tsScope(written));
+    }
+    if (!verify.ok) {
+      res.json({ ok: false, stage: 'compile', rounds, errors: verify.errors });
+      return;
+    }
+
+    // 2) Run ONLY the generated feature, pointed at the entered site.
+    const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
+    fs.rmSync(path.join(process.cwd(), 'reports', 'allure-results'), { recursive: true, force: true });
+    const prevTarget = process.env.TARGET_URL;
+    process.env.TARGET_URL = siteUrl;
+    let run;
+    try {
+      run = runFeature(title);
+    } finally {
+      if (prevTarget === undefined) delete process.env.TARGET_URL;
+      else process.env.TARGET_URL = prevTarget;
+    }
+
+    // 3) Render the Allure report from this run.
+    const reported = buildAllureReport();
+    res.json({
+      ok: run.ok,
+      stage: 'run',
+      feature: title,
+      passed: run.passed,
+      failed: run.failed,
+      rounds,
+      reportUrl: reported ? '/report/index.html' : null
     });
   })
 );
