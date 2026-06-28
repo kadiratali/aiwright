@@ -1,31 +1,39 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
 import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
+import { inspectPage, SelectorMap } from '../ai/pageInspector';
+import { probeApi, EndpointMap } from '../ai/specProbe';
 import { verifyTypeScript } from '../ai/verifier';
 import { runAgent } from '../agent/orchestrator';
 import { AgentIO, AgentEvent } from '../agent/io';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(process.cwd(), 'public')));
+// Scenario Studio is the home page ('/'); the older code studio (index.html) is retired.
+app.use(express.static(path.join(process.cwd(), 'public'), { index: 'scenarios.html' }));
 
 const tsScope = (written: string[]) => written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
 
-/** Reads the project source files the self-correction step may need to update. */
-function projectSources(): { fileName: string; content: string }[] {
+/** Reads the project source files the self-correction step may need to update (mode-aware). */
+function projectSources(mode: 'ui' | 'api' = 'ui'): { fileName: string; content: string }[] {
+  const dirs = mode === 'api' ? ['src/api', 'src/steps/api'] : ['src/pages', 'src/fixtures'];
   const out: { fileName: string; content: string }[] = [];
-  for (const dir of ['src/pages', 'src/fixtures']) {
-    const abs = path.join(process.cwd(), dir);
-    if (!fs.existsSync(abs)) continue;
-    for (const f of fs.readdirSync(abs)) {
-      if (f.endsWith('.ts') && !f.endsWith('.generated')) {
-        out.push({ fileName: f, content: fs.readFileSync(path.join(abs, f), 'utf-8') });
+  const walk = (rel: string) => {
+    const abs = path.join(process.cwd(), rel);
+    if (!fs.existsSync(abs)) return;
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+      const childRel = path.join(rel, entry.name);
+      if (entry.isDirectory()) walk(childRel);
+      else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.generated') && !entry.name.endsWith('.bak')) {
+        out.push({ fileName: childRel, content: fs.readFileSync(path.join(process.cwd(), childRel), 'utf-8') });
       }
     }
-  }
+  };
+  for (const d of dirs) walk(d);
   return out;
 }
 
@@ -56,6 +64,99 @@ const handler =
       res.status(500).json({ error: err?.message ?? String(err) });
     }
   };
+
+/** Compact, model-friendly summary of an inspected page — UI grounding for the design. */
+function siteContextFrom(map: SelectorMap): string {
+  const named = map.entries
+    .filter((e) => e.name && !e.unresolved)
+    .slice(0, 40)
+    .map((e) => `- ${e.role ?? e.tag}${e.name ? ` "${e.name}"` : ''}`);
+  return [
+    `UI page title: ${map.title}`,
+    `URL: ${map.url}`,
+    named.length ? `Notable elements on the page:\n${named.join('\n')}` : 'No notable named elements found.'
+  ].join('\n');
+}
+
+/** Compact summary of a probed OpenAPI spec — API grounding for the design. */
+function apiContextFrom(map: EndpointMap): string {
+  const lines = map.endpoints.map(
+    (e) =>
+      `- ${e.method} ${e.path}${e.summary ? ` — ${e.summary}` : ''}` +
+      (e.responses.length ? ` [statuses: ${e.responses.map((r) => r.status).join(', ')}]` : '')
+  );
+  return [
+    `API: ${map.title}${map.version ? ` v${map.version}` : ''}`,
+    `Base URL: ${map.baseUrl}`,
+    lines.length ? `Endpoints:\n${lines.join('\n')}` : 'No endpoints found in the spec.'
+  ].join('\n');
+}
+
+/** Probes an OpenAPI spec given as a URL (fetched) or pasted JSON. Spec-only (no live calls). */
+async function probeSpecInput(input: string): Promise<EndpointMap> {
+  let json: string;
+  if (/^https?:\/\//i.test(input)) {
+    const r = await fetch(input);
+    if (!r.ok) throw new Error(`Could not fetch the spec (HTTP ${r.status}) from ${input}`);
+    json = await r.text();
+  } else {
+    json = input;
+  }
+  try {
+    JSON.parse(json);
+  } catch {
+    throw new Error('The OpenAPI spec must be valid JSON (paste JSON, or a URL that returns JSON).');
+  }
+  const tmp = path.join(os.tmpdir(), `aiwright-spec-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(tmp, json);
+  try {
+    return await probeApi(tmp, { live: false });
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+// PRODUCT flow: { stories, siteUrl?, apiSpec? } -> scenarios. Grounds the test design in the real
+// system — a live UI inspect (siteUrl), an OpenAPI probe (apiSpec = URL or pasted JSON), or both —
+// and returns the scenarios (no code written). "Enter your site and/or API, share your stories,
+// get the scenarios."
+app.post(
+  '/api/scenarios',
+  handler(async (req, res) => {
+    const stories = String(req.body?.stories ?? '').trim();
+    const siteUrl = String(req.body?.siteUrl ?? '').trim();
+    const apiSpec = String(req.body?.apiSpec ?? '').trim();
+    // Stories are optional: a site or an API spec is enough to design from (the system is the
+    // requirement). At least one of the three must be present.
+    if (!stories && !siteUrl && !apiSpec) {
+      res.status(400).json({ error: 'Provide a site URL, an API spec, or your stories.' });
+      return;
+    }
+
+    const contexts: string[] = [];
+    let site: unknown;
+    let api: unknown;
+
+    if (siteUrl) {
+      if (!/^https?:\/\//i.test(siteUrl)) {
+        res.status(400).json({ error: 'Site URL must start with http:// or https://' });
+        return;
+      }
+      const map = await inspectPage(siteUrl);
+      contexts.push(siteContextFrom(map));
+      site = { title: map.title, url: map.url, elements: map.entries.length, warnings: map.warnings };
+    }
+
+    if (apiSpec) {
+      const map = await probeSpecInput(apiSpec);
+      contexts.push(apiContextFrom(map));
+      api = { title: map.title, version: map.version, baseUrl: map.baseUrl, endpoints: map.endpoints.length };
+    }
+
+    const design = await designTests(stories, undefined, contexts.join('\n\n---\n\n'));
+    res.json({ design, site, api });
+  })
+);
 
 // Story -> structured test design (the "what to test" layer).
 app.post(
@@ -91,6 +192,60 @@ app.post(
     const approved: TestDesign = { ...design, scenarios };
     const artifacts = await generateTests(story, renderDesignMarkdown(approved));
     res.json(artifacts);
+  })
+);
+
+// PRODUCT flow step 2: selected scenarios -> a runnable suite written into the project.
+// Re-grounds in the same system (API spec -> endpoint map + API mode, else site -> selector map +
+// UI mode), generates the feature + steps + clients/page objects for ONLY the chosen scenarios,
+// writes them, type-checks, and self-corrects up to 2 rounds so the result compiles.
+app.post(
+  '/api/generate-suite',
+  handler(async (req, res) => {
+    const stories = String(req.body?.stories ?? '').trim();
+    const siteUrl = String(req.body?.siteUrl ?? '').trim();
+    const apiSpec = String(req.body?.apiSpec ?? '').trim();
+    const design = req.body?.design as TestDesign | undefined;
+    const selected = (req.body?.selected as number[] | undefined) ?? [];
+    if (!design) {
+      res.status(400).json({ error: 'Provide the design.' });
+      return;
+    }
+    const scenarios = design.scenarios.filter((_, i) => selected.includes(i));
+    if (scenarios.length === 0) {
+      res.status(400).json({ error: 'Select at least one scenario.' });
+      return;
+    }
+    const approved: TestDesign = { ...design, scenarios };
+
+    // Mode + grounding follow the source: an API spec -> API lane; otherwise the site -> UI lane.
+    const mode: 'ui' | 'api' = apiSpec ? 'api' : 'ui';
+    let mapJson: string | undefined;
+    if (apiSpec) {
+      mapJson = JSON.stringify(await probeSpecInput(apiSpec), null, 2);
+    } else if (siteUrl) {
+      mapJson = JSON.stringify(await inspectPage(siteUrl), null, 2);
+    }
+
+    const storyText = stories || approved.understanding || approved.title;
+    let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, mode);
+    let written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, mode);
+    let verify = verifyTypeScript(tsScope(written));
+    let rounds = 0;
+    while (!verify.ok && rounds < 2) {
+      rounds++;
+      artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources(mode), mapJson, mode);
+      written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, mode);
+      verify = verifyTypeScript(tsScope(written));
+    }
+
+    res.json({
+      mode,
+      written,
+      rounds,
+      notes: artifacts.notes,
+      verify: { ok: verify.ok, errors: verify.errors }
+    });
   })
 );
 
@@ -257,7 +412,7 @@ const PORT = Number(process.env.PORT ?? 5173);
 // Bind to loopback only so the endpoints (which hold the API key and write files)
 // are never exposed on the network.
 app.listen(PORT, '127.0.0.1', () => {
-  console.log(`aiwright web UI running at http://localhost:${PORT}`);
-  console.log(`  QA agent (live run + approval): http://localhost:${PORT}/agent.html`);
+  console.log(`NeuralQA Scenario Studio running at http://localhost:${PORT}`);
+  console.log(`  Agent (live run + approval):    http://localhost:${PORT}/agent.html`);
   if (TOKEN) console.log('Token auth enabled (AIWRIGHT_TOKEN set).');
 });

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NeuralQA · Scenario Studio</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #07070b;
+        --bg-2: #0b0b12;
+        --card: rgba(255, 255, 255, 0.035);
+        --card-solid: #101019;
+        --border: rgba(255, 255, 255, 0.09);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #edeef2;
+        --muted: #9797a8;
+        --faint: #6b6b7b;
+        --accent: #7c6cff;
+        --accent-2: #b16cff;
+        --accent-soft: rgba(124, 108, 255, 0.14);
+        --p0: #fb5b78; --p0-bg: rgba(251, 91, 120, 0.13);
+        --p1: #f7b955; --p1-bg: rgba(247, 185, 85, 0.13);
+        --p2: #7c8aa5; --p2-bg: rgba(124, 138, 165, 0.13);
+        --green: #34d399; --green-bg: rgba(52, 211, 153, 0.12);
+        --red: #fb5b78;
+        --radius: 16px;
+        --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 14px 40px -18px rgba(0,0,0,0.7);
+        --ring: 0 0 0 3px var(--accent-soft);
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0; background: var(--bg); color: var(--text);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+        min-height: 100vh;
+      }
+      /* aurora backdrop */
+      body::before, body::after {
+        content: ""; position: fixed; z-index: 0; filter: blur(90px); opacity: 0.5; pointer-events: none;
+      }
+      body::before { width: 560px; height: 560px; top: -200px; left: -120px;
+        background: radial-gradient(circle, rgba(124,108,255,0.5), transparent 65%); }
+      body::after { width: 620px; height: 620px; top: 120px; right: -200px;
+        background: radial-gradient(circle, rgba(177,108,255,0.32), transparent 65%); }
+      .app { position: relative; z-index: 1; }
+
+      /* nav */
+      .nav {
+        position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px);
+        background: linear-gradient(180deg, rgba(7,7,11,0.86), rgba(7,7,11,0.55));
+        border-bottom: 1px solid var(--border);
+      }
+      .nav-in { max-width: 1000px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+      .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+      .logo .mark { width: 26px; height: 26px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center;
+        box-shadow: 0 6px 18px -6px rgba(124,108,255,0.7); }
+      .logo .mark svg { width: 15px; height: 15px; }
+      .pill-tag { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--border);
+        padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em; }
+      .nav .spacer { flex: 1; }
+      .nav a { color: var(--muted); text-decoration: none; font-size: 13.5px; font-weight: 500; margin-left: 18px; transition: color .15s; }
+      .nav a:hover { color: var(--text); }
+
+      main { max-width: 1000px; margin: 0 auto; padding: 56px 24px 160px; }
+
+      /* hero */
+      .hero { text-align: center; margin-bottom: 40px; }
+      .hero .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;
+        color: var(--accent-2); background: var(--accent-soft); border: 1px solid rgba(124,108,255,0.25);
+        padding: 5px 12px; border-radius: 999px; margin-bottom: 20px; }
+      .hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.08; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 14px; }
+      .hero h1 .grad { background: linear-gradient(120deg, #c9c2ff, var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .hero p { color: var(--muted); font-size: 16.5px; max-width: 560px; margin: 0 auto; }
+
+      /* steps */
+      .steps { display: flex; justify-content: center; gap: 8px; margin: 26px 0 0; flex-wrap: wrap; }
+      .step { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--faint); font-weight: 500; }
+      .step .dot { width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--border-strong);
+        display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--muted); }
+      .step.active { color: var(--text); }
+      .step.active .dot { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; }
+      .step .arrow { color: var(--faint); }
+
+      /* cards */
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); backdrop-filter: blur(6px); }
+      .console { padding: 8px; }
+      .field { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+      .field:last-of-type { border-bottom: 0; }
+      .field-label { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+      .field-label .ico { width: 17px; height: 17px; color: var(--accent-2); flex: 0 0 auto; }
+      .field-label .opt { font-weight: 500; color: var(--faint); font-size: 12px; }
+      input, textarea {
+        width: 100%; background: rgba(0,0,0,0.25); color: var(--text); border: 1px solid var(--border);
+        border-radius: 11px; padding: 11px 13px; font: inherit; font-size: 14px; transition: border-color .15s, box-shadow .15s;
+      }
+      input::placeholder, textarea::placeholder { color: var(--faint); }
+      input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+      textarea { resize: vertical; min-height: 64px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.6; }
+      #stories { font-family: "Inter", sans-serif; font-size: 14px; min-height: 84px; }
+      .hint { color: var(--faint); font-size: 12px; margin-top: 8px; }
+
+      .console-foot { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
+      .btn { border: 0; border-radius: 11px; padding: 11px 20px; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 8px; transition: transform .12s, box-shadow .2s, background .2s, opacity .2s; }
+      .btn-primary { color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        box-shadow: 0 10px 26px -10px rgba(124,108,255,0.8); }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 32px -10px rgba(124,108,255,0.95); }
+      .btn-primary:active { transform: translateY(0); }
+      .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+      .btn-ghost { background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid var(--border); font-weight: 500; padding: 9px 14px; }
+      .btn-ghost:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.07); }
+
+      .status { color: var(--muted); font-size: 13.5px; display: inline-flex; align-items: center; }
+      .spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: var(--accent-2);
+        border-radius: 50%; animation: spin .7s linear infinite; margin-right: 9px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* results */
+      .section-h { display: flex; align-items: baseline; gap: 10px; margin: 34px 0 14px; }
+      .section-h h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+      .section-h .count { font-size: 13px; color: var(--faint); }
+      .sources { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+      .src { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+        background: var(--card); border: 1px solid var(--border); padding: 7px 12px; border-radius: 10px; }
+      .src svg { width: 15px; height: 15px; color: var(--accent-2); }
+      .understanding { color: var(--muted); font-size: 14px; padding: 14px 16px; border-radius: 12px;
+        background: var(--card); border: 1px solid var(--border); border-left: 2px solid var(--accent); margin-bottom: 20px; }
+
+      .filterbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+      .facet { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .facet .lbl { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); font-weight: 600; margin-right: 2px; }
+      .chip { font-size: 12.5px; font-weight: 500; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+        cursor: pointer; color: var(--muted); user-select: none; transition: all .15s; background: var(--card); }
+      .chip:hover { border-color: var(--border-strong); color: var(--text); }
+      .chip.on { background: var(--accent-soft); border-color: rgba(124,108,255,0.4); color: #cdc6ff; }
+      .chip .n { opacity: 0.6; margin-left: 4px; font-size: 11px; }
+      .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+      .toolbar .grow { flex: 1; }
+      .sel-count { font-size: 13px; color: var(--muted); }
+
+      .scn { display: flex; gap: 13px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 13px;
+        background: var(--card); margin-bottom: 10px; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
+      .scn:hover { border-color: var(--border-strong); }
+      .scn.sel { border-color: rgba(124,108,255,0.55); background: linear-gradient(180deg, var(--accent-soft), transparent); }
+      .scn .check { position: relative; flex: 0 0 auto; margin-top: 2px; }
+      .scn .check input { position: absolute; opacity: 0; width: 20px; height: 20px; margin: 0; cursor: pointer; }
+      .scn .check .box { width: 20px; height: 20px; border-radius: 7px; border: 1.5px solid var(--border-strong);
+        display: grid; place-items: center; transition: all .15s; }
+      .scn .check .box svg { width: 12px; height: 12px; opacity: 0; transform: scale(0.6); transition: all .15s; color: #fff; }
+      .scn.sel .check .box { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; }
+      .scn.sel .check .box svg { opacity: 1; transform: scale(1); }
+      .scn .body { flex: 1; min-width: 0; }
+      .scn h4 { margin: 0 0 5px; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .scn p { margin: 0; color: var(--muted); font-size: 13.5px; }
+      .pill { font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; }
+      .pill.P0 { color: var(--p0); background: var(--p0-bg); }
+      .pill.P1 { color: var(--p1); background: var(--p1-bg); }
+      .pill.P2 { color: var(--p2); background: var(--p2-bg); }
+      .type-tag { font-size: 12px; color: var(--faint); font-weight: 500; }
+      .tags { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+      .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; font-family: "JetBrains Mono", monospace; }
+
+      /* sticky action bar */
+      .actionbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px; z-index: 30;
+        width: min(680px, calc(100% - 40px)); display: none; align-items: center; gap: 14px;
+        padding: 12px 14px 12px 20px; border-radius: 16px; border: 1px solid var(--border-strong);
+        background: rgba(16,16,25,0.82); backdrop-filter: blur(16px); box-shadow: 0 20px 50px -16px rgba(0,0,0,0.85); }
+      .actionbar.show { display: flex; animation: rise .25s ease; }
+      @keyframes rise { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+      .actionbar .info { flex: 1; }
+      .actionbar .info b { font-size: 14px; } .actionbar .info span { color: var(--muted); font-size: 12.5px; display: block; }
+
+      /* generation result */
+      .result { padding: 18px; border-radius: 14px; margin-top: 18px; border: 1px solid var(--border); background: var(--card); }
+      .result.ok { border-color: rgba(52,211,153,0.4); }
+      .result.bad { border-color: rgba(251,91,120,0.4); }
+      .result .head { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+      .result .badge2 { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+      .result.ok .badge2 { color: var(--green); background: var(--green-bg); }
+      .result.bad .badge2 { color: var(--red); background: var(--p0-bg); }
+      .files { margin-top: 14px; font-family: "JetBrains Mono", monospace; font-size: 12.5px; }
+      .files .f { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--muted); }
+      .files .f .plus { color: var(--green); font-weight: 700; }
+
+      /* skeleton */
+      .sk { border: 1px solid var(--border); border-radius: 13px; padding: 16px; margin-bottom: 10px; background: var(--card); }
+      .sk .l { height: 11px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.1), rgba(255,255,255,0.04));
+        background-size: 200% 100%; animation: sh 1.3s linear infinite; margin-bottom: 9px; }
+      @keyframes sh { to { background-position: -200% 0; } }
+      .error-card { padding: 16px; border-radius: 13px; border: 1px solid rgba(251,91,120,0.4); background: var(--p0-bg); color: #ffc2cd; font-size: 14px; }
+      .empty { text-align: center; color: var(--faint); padding: 40px 0; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="nav">
+        <div class="nav-in">
+          <div class="logo">
+            <span class="mark"><svg viewBox="0 0 24 24" fill="none">
+              <path d="M7 7.4 L16 11.2 M7 16.6 L16 12.8" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="6.6" cy="7" r="2.1" fill="#fff"/>
+              <circle cx="6.6" cy="17" r="2.1" fill="#fff"/>
+              <circle cx="16.6" cy="12" r="2.6" fill="#fff"/>
+            </svg></span>
+            NeuralQA
+          </div>
+          <span class="pill-tag">Scenario Studio</span>
+          <span class="spacer"></span>
+          <a href="/agent.html">Agent</a>
+        </div>
+      </nav>
+
+      <main>
+        <section class="hero">
+          <span class="eyebrow">✦ AI-grounded test design</span>
+          <h1>From your app to <span class="grad">test scenarios</span><br />in seconds.</h1>
+          <p>Point NeuralQA at your site or API, share your stories, then pick the scenarios and generate a runnable suite — grounded in the real system, not guesses.</p>
+          <div class="steps" id="steps">
+            <div class="step active" data-step="1"><span class="dot">1</span> Connect</div>
+            <span class="arrow">→</span>
+            <div class="step" data-step="2"><span class="dot">2</span> Select</div>
+            <span class="arrow">→</span>
+            <div class="step" data-step="3"><span class="dot">3</span> Generate</div>
+          </div>
+        </section>
+
+        <section class="card console">
+          <div class="field">
+            <div class="field-label">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>
+              Site URL <span class="opt">· UI, optional</span>
+            </div>
+            <input id="siteUrl" type="url" placeholder="https://your-app.com" />
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M5 7h14l-1 13a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7z"/></svg>
+              OpenAPI / Swagger spec <span class="opt">· API, optional</span>
+            </div>
+            <textarea id="apiSpec" placeholder="https://your-api.com/openapi.json   — or paste the spec JSON (OpenAPI 3.x or Swagger 2.0)"></textarea>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 10h16M4 15h10"/></svg>
+              User stories / requirements <span class="opt">· optional</span>
+            </div>
+            <textarea id="stories" placeholder="Optional. With a site or API spec, scenarios are derived from the system itself."></textarea>
+            <div class="hint">Provide a site URL, an API spec, or stories — at least one.</div>
+          </div>
+          <div class="console-foot">
+            <button id="go" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              Design scenarios
+            </button>
+            <span id="status" class="status"></span>
+          </div>
+        </section>
+
+        <div id="out"></div>
+      </main>
+
+      <div class="actionbar" id="actionbar">
+        <div class="info"><b id="selCount">0 selected</b><span id="genStatus">Pick the scenarios you want, then generate the suite.</span></div>
+        <button id="gen" class="btn btn-primary" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v18M3 12h18"/></svg>
+          Generate suite
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>';
+      const state = { data: null, ctx: {}, selected: new Set(), fpr: new Set(), ftype: new Set() };
+
+      function setStep(n) {
+        document.querySelectorAll('.step').forEach((el) => el.classList.toggle('active', Number(el.dataset.step) <= n));
+      }
+
+      function visibleIndices() {
+        return state.data.design.scenarios
+          .map((s, i) => ({ s, i }))
+          .filter(({ s }) => (state.fpr.size === 0 || state.fpr.has(s.priority)) && (state.ftype.size === 0 || state.ftype.has(s.type)))
+          .map(({ i }) => i);
+      }
+
+      function renderList() {
+        const scns = state.data.design.scenarios;
+        const vis = new Set(visibleIndices());
+        const html = scns.map((sc, i) => {
+          if (!vis.has(i)) return '';
+          const sel = state.selected.has(i);
+          return (
+            '<div class="scn' + (sel ? ' sel' : '') + '" data-i="' + i + '">' +
+              '<span class="check"><input type="checkbox" ' + (sel ? 'checked' : '') + ' /><span class="box">' + CHECK + '</span></span>' +
+              '<div class="body"><h4><span class="pill ' + esc(sc.priority) + '">' + esc(sc.priority) + '</span>' +
+                esc(sc.title) + '<span class="type-tag">' + esc(sc.type) + '</span></h4>' +
+                '<p>' + esc(sc.rationale) + '</p>' +
+                (sc.suggestedTags && sc.suggestedTags.length ? '<div class="tags">' + sc.suggestedTags.map((t) => '<span class="tag">' + esc(t) + '</span>').join('') + '</div>' : '') +
+              '</div>' +
+            '</div>'
+          );
+        }).join('');
+        $('list').innerHTML = html || '<div class="empty">No scenarios match these filters.</div>';
+        $('list').querySelectorAll('.scn').forEach((row) => {
+          row.onclick = () => {
+            const i = Number(row.dataset.i);
+            state.selected.has(i) ? state.selected.delete(i) : state.selected.add(i);
+            renderList();
+          };
+        });
+        updateBar();
+      }
+
+      function updateBar() {
+        const n = state.selected.size;
+        $('selCount').textContent = n + ' selected';
+        $('gen').disabled = n === 0;
+        $('actionbar').classList.toggle('show', !!state.data);
+        if (n) setStep(2);
+      }
+
+      function chip(text, count, onClick) {
+        const el = document.createElement('span');
+        el.className = 'chip';
+        el.innerHTML = esc(text) + (count != null ? '<span class="n">' + count + '</span>' : '');
+        el.onclick = () => { el.classList.toggle('on'); onClick(); renderList(); };
+        return el;
+      }
+
+      function render(data) {
+        state.data = data; state.selected = new Set(); state.fpr = new Set(); state.ftype = new Set();
+        const d = data.design, s = data.site, a = data.api;
+        setStep(2);
+
+        let src = '';
+        if (s) src += '<span class="src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg>' + esc(s.title || s.url) + ' · ' + s.elements + ' elements</span>';
+        if (a) src += '<span class="src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7V4h6v3M5 7h14l-1 13H6L5 7z"/></svg>' + esc(a.title || 'API') + ' · ' + a.endpoints + ' endpoints</span>';
+
+        let h = '<div class="section-h"><h2>' + esc(d.title || 'Test design') + '</h2><span class="count">' + d.scenarios.length + ' scenarios</span></div>';
+        if (src) h += '<div class="sources">' + src + '</div>';
+        if (d.understanding) h += '<div class="understanding">' + esc(d.understanding) + '</div>';
+        h += '<div class="filterbar" id="filters"></div>';
+        h += '<div class="toolbar"><button class="btn btn-ghost" id="selAll">Select all visible</button><button class="btn btn-ghost" id="clr">Clear</button><span class="grow"></span></div>';
+        h += '<div id="list"></div>';
+        h += '<div id="genOut"></div>';
+        $('out').innerHTML = h;
+
+        const prios = ['P0', 'P1', 'P2'].filter((p) => d.scenarios.some((x) => x.priority === p));
+        const types = [...new Set(d.scenarios.map((x) => x.type))];
+        const pf = document.createElement('div'); pf.className = 'facet'; pf.innerHTML = '<span class="lbl">Priority</span>';
+        prios.forEach((p) => pf.appendChild(chip(p, d.scenarios.filter((x) => x.priority === p).length, () => state.fpr.has(p) ? state.fpr.delete(p) : state.fpr.add(p))));
+        const tf = document.createElement('div'); tf.className = 'facet'; tf.innerHTML = '<span class="lbl">Type</span>';
+        types.forEach((t) => tf.appendChild(chip(t, d.scenarios.filter((x) => x.type === t).length, () => state.ftype.has(t) ? state.ftype.delete(t) : state.ftype.add(t))));
+        $('filters').appendChild(pf); $('filters').appendChild(tf);
+
+        $('selAll').onclick = () => { visibleIndices().forEach((i) => state.selected.add(i)); renderList(); };
+        $('clr').onclick = () => { state.selected.clear(); renderList(); };
+        renderList();
+        $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      async function generateSuite() {
+        $('gen').disabled = true;
+        const lane = state.ctx.apiSpec ? 'API' : 'UI';
+        $('genStatus').innerHTML = '<span class="spinner"></span>Generating the ' + lane + ' suite into your project…';
+        $('genOut').innerHTML = '';
+        setStep(3);
+        try {
+          const r = await fetch('/api/generate-suite', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...state.ctx, design: state.data.design, selected: [...state.selected] })
+          });
+          const res = await r.json();
+          if (!r.ok) throw new Error(res.error || 'Generation failed');
+          const v = res.verify;
+          let h = '<div class="result ' + (v.ok ? 'ok' : 'bad') + '"><div class="head">' +
+            (v.ok ? '✓ Suite generated &amp; type-checks' : '✗ Generated — type errors remain') +
+            '<span class="badge2">' + esc(res.mode) + ' lane</span>' +
+            (res.rounds ? '<span class="badge2">' + res.rounds + ' self-correct round(s)</span>' : '') + '</div>' +
+            '<div class="files">' + res.written.map((f) => '<div class="f"><span class="plus">+</span>' + esc(f) + '</div>').join('') + '</div>';
+          if (!v.ok) h += '<div class="files" style="margin-top:10px;color:#ffc2cd">' + v.errors.map((e) => '<div class="f">' + esc((e.file || '').split('/').pop()) + ':' + e.line + ' ' + esc(e.message) + '</div>').join('') + '</div>';
+          h += '</div>';
+          $('genOut').innerHTML = h;
+          $('genStatus').textContent = v.ok ? 'Done — your suite is in the project.' : 'Generated with remaining errors — see below.';
+          $('genOut').scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (e) {
+          $('genOut').innerHTML = '<div class="error-card">' + esc(e.message) + '</div>';
+          $('genStatus').textContent = 'Generation failed.';
+        } finally {
+          updateBar();
+        }
+      }
+
+      $('go').onclick = async () => {
+        const siteUrl = $('siteUrl').value.trim();
+        const apiSpec = $('apiSpec').value.trim();
+        const stories = $('stories').value.trim();
+        if (!siteUrl && !apiSpec && !stories) { $('status').textContent = 'Enter a site URL, an API spec, or your stories.'; return; }
+        state.ctx = { siteUrl, apiSpec, stories };
+        $('actionbar').classList.remove('show');
+        $('go').disabled = true;
+        const what = siteUrl && apiSpec ? 'Inspecting your site + probing your API' : siteUrl ? 'Inspecting your site' : apiSpec ? 'Probing your API' : 'Reading your stories';
+        $('status').innerHTML = '<span class="spinner"></span>' + what + ', then designing…';
+        $('out').innerHTML = '<div class="section-h"><h2>Designing scenarios…</h2></div>' +
+          Array.from({ length: 4 }).map(() => '<div class="sk"><div class="l" style="width:42%"></div><div class="l" style="width:88%"></div><div class="l" style="width:70%"></div></div>').join('');
+        try {
+          const r = await fetch('/api/scenarios', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteUrl, apiSpec, stories })
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          $('status').textContent = '';
+          render(data);
+        } catch (e) {
+          $('out').innerHTML = '<div class="error-card">' + esc(e.message) + '</div>';
+          $('status').textContent = '';
+        } finally {
+          $('go').disabled = false;
+        }
+      };
+      $('gen').onclick = generateSuite;
+    </script>
+  </body>
+</html>
