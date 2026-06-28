@@ -14,25 +14,26 @@ import { AgentIO, AgentEvent } from '../agent/io';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-// The rendered Allure report (results of a "Run & report") is served here.
-app.use('/report', express.static(path.join(process.cwd(), 'reports', 'allure-report')));
+// Per-run Allure reports are served here at /report/<runId>/.
+const RUN_REPORTS_DIR = path.join(process.cwd(), 'reports', 'run-reports');
+app.use('/report', express.static(RUN_REPORTS_DIR));
 // Scenario Studio is the home page ('/'); the older code studio (index.html) is retired.
 app.use(express.static(path.join(process.cwd(), 'public'), { index: 'scenarios.html' }));
 
 const tsScope = (written: string[]) => written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
 
 /** Reads the project source files the self-correction step may need to update (mode-aware). */
-function projectSources(mode: 'ui' | 'api' = 'ui'): { fileName: string; content: string }[] {
+function projectSources(mode: 'ui' | 'api' = 'ui', rootDir = process.cwd()): { fileName: string; content: string }[] {
   const dirs = mode === 'api' ? ['src/api', 'src/steps/api'] : ['src/pages', 'src/fixtures'];
   const out: { fileName: string; content: string }[] = [];
   const walk = (rel: string) => {
-    const abs = path.join(process.cwd(), rel);
+    const abs = path.join(rootDir, rel);
     if (!fs.existsSync(abs)) return;
     for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
       const childRel = path.join(rel, entry.name);
       if (entry.isDirectory()) walk(childRel);
       else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.generated') && !entry.name.endsWith('.bak')) {
-        out.push({ fileName: childRel, content: fs.readFileSync(path.join(process.cwd(), childRel), 'utf-8') });
+        out.push({ fileName: childRel, content: fs.readFileSync(path.join(rootDir, childRel), 'utf-8') });
       }
     }
   };
@@ -252,13 +253,58 @@ app.post(
   })
 );
 
-/** Renders the Allure HTML report from reports/allure-results into reports/allure-report. */
-function buildAllureReport(rootDir = process.cwd()): boolean {
-  const local = path.join(rootDir, 'node_modules', '.bin', 'allure');
+// Minimal single-project Playwright config written into each run workspace: chromium only,
+// baseURL pinned to that run's TARGET_URL, Allure results, no webServer/mock, UI steps only.
+const WORKSPACE_CONFIG = `import { defineConfig } from '@playwright/test';
+import { defineBddConfig } from 'playwright-bdd';
+
+const testDir = defineBddConfig({
+  features: 'features/**/*.feature',
+  steps: ['src/steps/*.ts', 'src/fixtures/**/*.ts']
+});
+
+export default defineConfig({
+  testDir,
+  reporter: [['list'], ['allure-playwright', { resultsDir: 'reports/allure-results' }]],
+  use: {
+    baseURL: process.env.TARGET_URL,
+    headless: true,
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure'
+  },
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }]
+});
+`;
+
+/**
+ * Creates an isolated, runnable workspace for ONE run: a clone of the project (node_modules
+ * symlinked to stay fast/cheap, secrets + reports + existing features excluded) with a minimal
+ * single-project config and an empty features/ for the generated suite. Each run is sandboxed —
+ * no shared-cwd writes, no cross-run collisions, its own TARGET_URL.
+ */
+function setupWorkspace(rootDir: string): { ws: string; id: string } {
+  const id = crypto.randomUUID().slice(0, 8);
+  const ws = path.join(os.tmpdir(), `neuralqa-run-${id}`);
+  const SKIP = ['node_modules', '.git', 'reports', '.features-gen', 'dist', 'features', '.env', 'fixtures/sensitive'];
+  fs.cpSync(rootDir, ws, {
+    recursive: true,
+    filter: (src) => {
+      const rel = path.relative(rootDir, src);
+      return rel === '' || !SKIP.some((s) => rel === s || rel.startsWith(s + path.sep));
+    }
+  });
+  fs.symlinkSync(path.join(rootDir, 'node_modules'), path.join(ws, 'node_modules'), 'dir');
+  fs.mkdirSync(path.join(ws, 'features'), { recursive: true });
+  fs.writeFileSync(path.join(ws, 'playwright.config.ts'), WORKSPACE_CONFIG);
+  return { ws, id };
+}
+
+/** Renders the Allure HTML report from <ws>/reports/allure-results into outDir. */
+function buildAllureReport(ws: string, outDir: string): boolean {
+  const local = path.join(ws, 'node_modules', '.bin', 'allure');
   const bin = fs.existsSync(local) ? local : 'allure';
   try {
-    execFileSync(bin, ['generate', 'reports/allure-results', '--clean', '-o', 'reports/allure-report'], {
-      cwd: rootDir,
+    execFileSync(bin, ['generate', path.join(ws, 'reports', 'allure-results'), '--clean', '-o', outDir], {
       stdio: 'ignore'
     });
     return true;
@@ -267,9 +313,9 @@ function buildAllureReport(rootDir = process.cwd()): boolean {
   }
 }
 
-// PRODUCT flow (run-as-a-service): selected scenarios -> generate a UI suite -> RUN it against the
-// entered site -> render an Allure report. The user takes away results, not code: response carries
-// the pass/fail tally and a link to the hosted report (/report). UI lane only for now.
+// PRODUCT flow (run-as-a-service): selected scenarios -> generate a UI suite IN AN ISOLATED
+// WORKSPACE -> run it against the entered site -> render a PER-RUN Allure report. The workspace is
+// a throwaway clone (no shared cwd writes, concurrent-safe); only the report is kept and served.
 app.post(
   '/api/run-suite',
   handler(async (req, res) => {
@@ -292,48 +338,44 @@ app.post(
     }
     const approved: TestDesign = { ...design, scenarios };
 
-    // 1) Generate a UI suite grounded in a live inspect of the site.
-    const mapJson = JSON.stringify(await inspectPage(siteUrl), null, 2);
-    const storyText = stories || approved.understanding || approved.title;
-    let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
-    let written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, 'ui');
-    let verify = verifyTypeScript(tsScope(written));
-    let rounds = 0;
-    while (!verify.ok && rounds < 2) {
-      rounds++;
-      artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui'), mapJson, 'ui');
-      written = writeArtifacts(artifacts, process.cwd(), { overwrite: true }, 'ui');
-      verify = verifyTypeScript(tsScope(written));
-    }
-    if (!verify.ok) {
-      res.json({ ok: false, stage: 'compile', rounds, errors: verify.errors });
-      return;
-    }
-
-    // 2) Run ONLY the generated feature, pointed at the entered site.
-    const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
-    fs.rmSync(path.join(process.cwd(), 'reports', 'allure-results'), { recursive: true, force: true });
-    const prevTarget = process.env.TARGET_URL;
-    process.env.TARGET_URL = siteUrl;
-    let run;
+    const { ws, id } = setupWorkspace(process.cwd());
     try {
-      run = runFeature(title);
-    } finally {
-      if (prevTarget === undefined) delete process.env.TARGET_URL;
-      else process.env.TARGET_URL = prevTarget;
-    }
+      // 1) Generate a UI suite (grounded in a live inspect) INTO the workspace.
+      const mapJson = JSON.stringify(await inspectPage(siteUrl), null, 2);
+      const storyText = stories || approved.understanding || approved.title;
+      let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
+      let written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+      let verify = verifyTypeScript(tsScope(written), ws);
+      let rounds = 0;
+      while (!verify.ok && rounds < 2) {
+        rounds++;
+        artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui', ws), mapJson, 'ui');
+        written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+        verify = verifyTypeScript(tsScope(written), ws);
+      }
+      if (!verify.ok) {
+        res.json({ ok: false, stage: 'compile', rounds, errors: verify.errors });
+        return;
+      }
 
-    // 3) Render the Allure report from this run.
-    const reported = buildAllureReport();
-    res.json({
-      ok: run.ok,
-      stage: 'run',
-      feature: title,
-      passed: run.passed,
-      failed: run.failed,
-      rounds,
-      reportUrl: reported ? '/report/index.html' : null
-    });
+      // 2) Run ONLY the generated feature, in the workspace, against the entered site.
+      const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
+      const run = runFeature(title, ws, { TARGET_URL: siteUrl, BASE_URL: siteUrl });
+
+      // 3) Render a per-run Allure report (kept after the workspace is discarded).
+      const reported = buildAllureReport(ws, path.join(RUN_REPORTS_DIR, id));
+      res.json({
+        ok: run.ok,
+        stage: 'run',
+        feature: title,
+        passed: run.passed,
+        failed: run.failed,
+        rounds,
+        reportUrl: reported ? `/report/${id}/index.html` : null
+      });
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
   })
 );
 
