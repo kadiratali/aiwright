@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getClient, MODEL } from './client';
-import { DESIGNER_SYSTEM } from './prompts';
+import { DESIGNER_SYSTEM, SITE_CONTEXT_INSTRUCTION } from './prompts';
 import { redact } from './redact';
 import { registerAllSensitive } from '../fixtures/data';
 
@@ -97,7 +97,11 @@ const DESIGN_SCHEMA = {
   additionalProperties: false
 } as const;
 
-export async function designTests(userStory: string, maxScenarios?: number): Promise<TestDesign> {
+export async function designTests(
+  userStory: string,
+  maxScenarios?: number,
+  siteContext?: string
+): Promise<TestDesign> {
   const client = getClient();
 
   // Before going to the LLM: load known secret values + redact the story.
@@ -105,6 +109,9 @@ export async function designTests(userStory: string, maxScenarios?: number): Pro
   const safeStory = redact(userStory);
 
   let content = `Produce a test design for this user story:\n\n${safeStory}`;
+  if (siteContext?.trim()) {
+    content += `\n\n${SITE_CONTEXT_INSTRUCTION}\n\nLIVE CONTEXT (real UI elements and/or API endpoints):\n\n${redact(siteContext)}`;
+  }
   if (maxScenarios && maxScenarios > 0) {
     // Quick-trial mode: keep the design (and therefore generation) small and fast.
     content +=

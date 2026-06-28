@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>aiwright — Scenario Studio</title>
+    <link rel="icon" href="/favicon.svg" />
+    <style>
+      :root {
+        --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
+        --muted: #8b949e; --accent: #1f6feb; --green: #238636; --amber: #9e6a03; --red: #da3633;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+      h1 { font-size: 26px; margin: 0 0 4px; }
+      .tagline { color: var(--muted); margin: 0 0 28px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+      label { display: block; font-weight: 600; margin: 0 0 6px; font-size: 13px; }
+      input, textarea { width: 100%; background: #0d1117; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font: inherit; }
+      textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+      .row { margin-bottom: 14px; }
+      button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: .55; cursor: progress; }
+      .ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+      .muted { color: var(--muted); }
+      .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+      .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px; margin-right: 6px; vertical-align: middle; }
+      .p0 { background: var(--red); } .p1 { background: var(--amber); } .p2 { background: #30363d; }
+      .type { color: var(--muted); font-size: 12px; }
+      .scn { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #0d1117; }
+      .scn h4 { margin: 0 0 6px; font-size: 15px; }
+      .scn p { margin: 0; color: #c9d1d9; font-size: 14px; }
+      .tags { margin-top: 8px; }
+      .tag { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; margin-right: 5px; }
+      .sec-title { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 10px; }
+      .site { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+      .err { border-color: var(--red); color: #ffb4b0; }
+      .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ffffff66; border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      ul.tight { margin: 6px 0 0; padding-left: 18px; } ul.tight li { margin: 3px 0; }
+      a { color: #58a6ff; }
+      .toprow { display: flex; gap: 10px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>aiwright — Scenario Studio</h1>
+      <p class="tagline">Enter your site, share your stories, get the test scenarios.</p>
+
+      <div class="card">
+        <div class="row">
+          <label for="siteUrl">Your site URL <span class="muted">(UI — optional)</span></label>
+          <input id="siteUrl" type="url" placeholder="https://your-app.com" />
+          <div class="hint">We open the page and ground the scenarios in its real elements/flows.</div>
+        </div>
+        <div class="row">
+          <label for="apiSpec">Your OpenAPI spec <span class="muted">(API — optional)</span></label>
+          <textarea id="apiSpec" style="min-height:80px" placeholder="https://your-api.com/openapi.json   — or paste the OpenAPI JSON here"></textarea>
+          <div class="hint">We parse the endpoints and ground API scenarios (statuses, contracts, validation) in them. Provide a site URL, an API spec, or both.</div>
+        </div>
+        <div class="row">
+          <label for="stories">Your user stories / requirements</label>
+          <textarea id="stories" placeholder="As a visitor, I can search for a product from the header and see matching results.
+A nonsense query should show a clear 'no results' state, not an error."></textarea>
+        </div>
+        <div class="toprow">
+          <button id="go">Generate scenarios</button>
+          <span id="status" class="muted"></span>
+        </div>
+      </div>
+
+      <div id="out"></div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      const pcls = (p) => ({ P0: 'p0', P1: 'p1', P2: 'p2' }[p] || 'p2');
+
+      function render(data) {
+        const d = data.design, s = data.site;
+        const sevOrder = { high: 0, medium: 1, low: 2 };
+        const risks = [...(d.riskAreas || [])].sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
+        const scns = [...(d.scenarios || [])].sort((a, b) => a.priority.localeCompare(b.priority));
+
+        let h = '';
+        const a = data.api;
+        let sourceTags = '';
+        if (s) sourceTags += '<span>🌐 ' + esc(s.title || s.url) + ' · ' + s.elements + ' elements</span>';
+        if (a) sourceTags += '<span>🔌 ' + esc(a.title || 'API') + ' · ' + a.endpoints + ' endpoints</span>';
+        if (s && s.warnings && s.warnings.length) sourceTags += '<span>⚠ ' + s.warnings.length + ' warning(s)</span>';
+        h += '<div class="card"><strong>' + esc(d.title || 'Test design') + '</strong>' +
+          '<p class="muted" style="margin:6px 0 10px">' + esc(d.understanding || '') + '</p>' +
+          '<div class="site">' + sourceTags + '</div></div>';
+
+        h += '<div class="sec-title">Scenarios (' + scns.length + ')</div>';
+        for (const sc of scns) {
+          h += '<div class="scn">' +
+            '<h4><span class="badge ' + pcls(sc.priority) + '">' + esc(sc.priority) + '</span>' +
+            esc(sc.title) + ' <span class="type">· ' + esc(sc.type) + '</span></h4>' +
+            '<p>' + esc(sc.rationale) + '</p>' +
+            (sc.suggestedTags && sc.suggestedTags.length
+              ? '<div class="tags">' + sc.suggestedTags.map((t) => '<span class="tag">' + esc(t) + '</span>').join('') + '</div>'
+              : '') +
+            '</div>';
+        }
+
+        if (risks.length) {
+          h += '<div class="sec-title">Risk areas</div><div class="card"><ul class="tight">' +
+            risks.map((r) => '<li><strong>' + esc(r.area) + '</strong> <span class="muted">(' + esc(r.severity) + ')</span> — ' + esc(r.reason) + '</li>').join('') +
+            '</ul></div>';
+        }
+        if ((d.openQuestions || []).length) {
+          h += '<div class="sec-title">Open questions</div><div class="card"><ul class="tight">' +
+            d.openQuestions.map((q) => '<li>' + esc(q) + '</li>').join('') + '</ul></div>';
+        }
+        if ((d.outOfScope || []).length) {
+          h += '<div class="sec-title">Out of scope</div><div class="card"><ul class="tight">' +
+            d.outOfScope.map((o) => '<li><strong>' + esc(o.item) + '</strong> — ' + esc(o.reason) + '</li>').join('') + '</ul></div>';
+        }
+
+        h += '<div class="toprow" style="margin-top:18px"><button class="ghost" id="copy">Copy scenarios as text</button></div>';
+        $('out').innerHTML = h;
+        $('copy').onclick = () => {
+          const text = scns.map((sc) => `[${sc.priority}] ${sc.title} (${sc.type})\n  ${sc.rationale}`).join('\n\n');
+          navigator.clipboard.writeText(text);
+          $('copy').textContent = 'Copied ✓';
+          setTimeout(() => ($('copy').textContent = 'Copy scenarios as text'), 1500);
+        };
+      }
+
+      $('go').onclick = async () => {
+        const siteUrl = $('siteUrl').value.trim();
+        const apiSpec = $('apiSpec').value.trim();
+        const stories = $('stories').value.trim();
+        $('out').innerHTML = '';
+        if (!stories) { $('status').textContent = 'Enter your stories.'; return; }
+        if (!siteUrl && !apiSpec) { $('status').textContent = 'Enter a site URL, an API spec, or both.'; return; }
+
+        $('go').disabled = true;
+        const what = siteUrl && apiSpec ? 'Inspecting your site + probing your API' : siteUrl ? 'Inspecting your site' : 'Probing your API';
+        $('status').innerHTML = '<span class="spinner"></span>' + what + ', then designing scenarios…';
+        try {
+          const r = await fetch('/api/scenarios', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteUrl, apiSpec, stories })
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          $('status').textContent = '';
+          render(data);
+        } catch (e) {
+          $('out').innerHTML = '<div class="card err">' + esc(e.message) + '</div>';
+          $('status').textContent = '';
+        } finally {
+          $('go').disabled = false;
+        }
+      };
+    </script>
+  </body>
+</html>

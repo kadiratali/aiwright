@@ -220,6 +220,18 @@ Produce:
 
 Be specific to THIS story; avoid generic boilerplate. Quality of judgement over quantity.`;
 
+// Appended to a DESIGN request when the real system was observed, so scenarios reference its
+// ACTUAL UI flows/elements and/or API endpoints instead of generic guesses.
+export const SITE_CONTEXT_INSTRUCTION = `
+A LIVE CONTEXT follows: what was observed from the real system under test — UI elements inspected
+from the page and/or API endpoints parsed from its OpenAPI spec. Ground the test design in it:
+- Tie scenarios to the actual flows/elements and endpoints present (the real search box, login
+  form, GET /orders, the declared status codes) rather than inventing capabilities the system does
+  not expose.
+- If the story mentions something the system does not expose, surface it as an open question.
+- Still lead with the user story's intent — the context sharpens the scenarios, it does not replace
+  the requirement.`;
+
 // Appended to the generation request when a human-approved test design is supplied.
 // The curated design becomes the source of truth for WHICH scenarios to implement.
 export const DESIGN_SCOPED_INSTRUCTION = `
