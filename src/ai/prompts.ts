@@ -58,13 +58,18 @@ Rules:
 export const GENERATOR_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: given a user story (with optional acceptance criteria), produce a complete,
-runnable test artifact set: one .feature file, one .steps.ts file, and any new Page
-Objects needed. New page objects must be referenced via fixtures - include the exact
-fixture-registration snippet for src/fixtures/index.ts (the extend entry and the import)
-in the "notes" field so a human can wire it in. If the steps need new test data, include
-the JSON to add under fixtures/ in "notes" as well. If selectors for the application are
-unknown, derive them from the story if provided, otherwise use clearly marked placeholder
-selectors with TODO comments.
+RUNNABLE test artifact set: one .feature file, one .steps.ts file, and any new Page Objects.
+
+CRITICAL — auto-wire fixtures so the suite runs WITHOUT manual steps: every page object a step
+uses (e.g. \`{ homePage }\`) must be a registered fixture. When you add a NEW page object, return
+the FULL updated src/fixtures/index.ts in "supportFiles" (path: "src/fixtures/index.ts"), merging
+in the new entry — its import AND the PageFixtures type field AND the extend registration, e.g.
+\`homePage: async ({ page }, use) => use(new HomePage(page))\` — while PRESERVING every existing
+fixture. Do NOT just describe this in "notes"; an unregistered fixture is a compile error. Reuse an
+existing page-object fixture when one already fits (see the PROJECT API SURFACE) rather than adding
+a duplicate. If the steps need new test data, include the JSON to add under fixtures/ in "notes".
+If selectors are unknown, derive them from the story/selector-map, otherwise use clearly marked
+placeholder selectors with TODO comments.
 
 Scenario depth - write thorough scenarios, not 2-line stubs:
 - Each scenario must have BETWEEN 6 AND 10 steps (counting Given/When/Then/And/But lines,
@@ -279,10 +284,15 @@ errors and the current source of the existing project files follow. Rules:
 - When a page object is missing a member, return the COMPLETE updated page-object file in
   "pageObjects" (the existing content PLUS the new members merged in), using the existing
   file name so it replaces the file. Do not drop existing members.
+- A MISSING FIXTURE error ("Property 'xxxPage' does not exist on type ... Fixtures") means the
+  page object is not registered. Fix it by returning the FULL updated src/fixtures/index.ts in
+  "supportFiles" (path "src/fixtures/index.ts") — add the import, the PageFixtures type field, and
+  the extend entry \`xxxPage: async ({ page }, use) => use(new XxxPage(page))\`, preserving all
+  existing fixtures.
 - Keep selectors real (from the selector map if provided); otherwise add a clearly marked
   placeholder selector with a TODO.
 - Follow the project conventions and keep the feature/steps consistent with the fixes.
-- Return the FULL corrected artifact set (feature, steps, page objects, notes).`;
+- Return the FULL corrected artifact set (feature, steps, page objects, supportFiles, notes).`;
 
 // Used by the runtime selector self-heal loop: a scenario failed at RUN time because a
 // locator did not resolve (timeout waiting for locator / strict-mode / not visible). A FRESH
