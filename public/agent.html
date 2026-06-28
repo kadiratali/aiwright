@@ -1,210 +1,243 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>aiwright — QA Agent</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <style>
-    :root {
-      --bg: #0f1115; --panel: #181b22; --line: #2a2f3a; --fg: #e6e8eb;
-      --muted: #9aa3b2; --accent: #6ea8fe; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; color: var(--fg);
-      background:
-        radial-gradient(820px 360px at 50% -140px, rgba(110,168,254,0.16), transparent 70%),
-        radial-gradient(620px 300px at 88% -60px, rgba(45,212,191,0.10), transparent 70%),
-        var(--bg);
-      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 80px; }
-    /* brand header */
-    .brand { display: flex; align-items: center; gap: 14px; margin: 6px 0 26px; }
-    .brand .logo { flex: none; filter: drop-shadow(0 6px 16px rgba(110,168,254,.32)); }
-    .brand-name { font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
-      display: flex; align-items: center; gap: 10px; }
-    .brand-chip { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .09em;
-      color: var(--accent); border: 1px solid rgba(110,168,254,.35); border-radius: 20px;
-      padding: 2px 9px; background: rgba(110,168,254,.08); }
-    .brand-tag { color: var(--muted); font-size: 13.5px; margin-top: 3px; max-width: 660px; }
-    .brand-tag a { color: var(--accent); text-decoration: none; }
-    .brand-tag a:hover { text-decoration: underline; }
-    h1 { font-size: 22px; margin: 0 0 4px; }
-    .sub { color: var(--muted); margin: 0 0 24px; }
-    .sub a { color: var(--accent); text-decoration: none; }
-    .panel { background: var(--panel); border: 1px solid var(--line);
-      border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-    .panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em;
-      color: var(--muted); margin: 0 0 14px; }
-    textarea { width: 100%; min-height: 130px; background: #0c0e12; color: var(--fg);
-      border: 1px solid var(--line); border-radius: 8px; padding: 12px; resize: vertical;
-      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    button { background: var(--accent); color: #0b1020; border: 0; border-radius: 8px;
-      padding: 10px 18px; font-weight: 600; cursor: pointer; font-size: 14px; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
-    button.bad { background: var(--bad); color: #fff; }
-    button.warn { background: var(--warn); color: #0b1020; }
-    .row { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
-    .hidden { display: none; }
-    #log { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-      background: #0c0e12; border: 1px solid var(--line); border-radius: 8px;
-      padding: 14px; max-height: 460px; overflow-y: auto; white-space: pre-wrap; }
-    .ev { margin: 2px 0; }
-    .ev .tag { color: var(--muted); }
-    .plan { color: var(--accent); }
-    .ok { color: var(--ok); } .bad { color: var(--bad); } .muted { color: var(--muted); }
-    .gate { border: 1px solid var(--accent); }
-    .gate.esc { border-color: var(--bad); }
-    .gate h2 { color: var(--fg); }
-    .gate .reason { color: var(--muted); margin: 0 0 12px; }
-    .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 20px;
-      border: 1px solid var(--line); color: var(--muted); margin-left: 8px; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <header class="brand">
-      <svg class="logo" width="46" height="46" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="aiwright">
-        <defs>
-          <linearGradient id="awg" x1="4" y1="4" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#6ea8fe"/><stop offset="1" stop-color="#2dd4bf"/>
-          </linearGradient>
-        </defs>
-        <rect x="4" y="4" width="36" height="36" rx="11" fill="url(#awg)"/>
-        <path d="M13 22.5l5.2 5.2L27 17.5" stroke="#091018" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M30.5 12.2l.95 2.45 2.45.95-2.45.95-.95 2.45-.95-2.45-2.45-.95 2.45-.95z" fill="#091018"/>
-      </svg>
-      <div>
-        <div class="brand-name">aiwright <span class="brand-chip">QA Agent</span></div>
-        <div class="brand-tag">Give it a story; it plans and runs the pipeline itself — pausing for your OK
-          on side-effecting steps and stopping on a real regression. ·
-          <a href="/index.html">Step-by-step studio →</a></div>
-      </div>
-    </header>
-
-    <div class="panel" id="startPanel">
-      <h2>User story</h2>
-      <textarea id="story" placeholder="As a registered customer I want to log in so that..."></textarea>
-      <div class="row">
-        <button id="startBtn">Start agent</button>
-        <span class="muted" id="status"></span>
-      </div>
-    </div>
-
-    <div class="panel gate hidden" id="gate">
-      <h2 id="gateTitle">Decision needed</h2>
-      <p class="reason" id="gateReason"></p>
-      <div class="row" id="gateButtons"></div>
-    </div>
-
-    <div class="panel hidden" id="runPanel">
-      <h2>Run</h2>
-      <div id="log"></div>
-    </div>
-  </div>
-
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const startBtn = $('startBtn'), storyEl = $('story'), statusEl = $('status');
-    const logEl = $('log'), runPanel = $('runPanel');
-    const gate = $('gate'), gateTitle = $('gateTitle'), gateReason = $('gateReason'), gateButtons = $('gateButtons');
-    let runId = null;
-
-    function line(html, cls) {
-      const div = document.createElement('div');
-      div.className = 'ev' + (cls ? ' ' + cls : '');
-      div.innerHTML = html;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-
-    function showGate(kind, reason, options) {
-      gate.classList.remove('hidden');
-      gate.classList.toggle('esc', kind === 'escalate');
-      gateTitle.textContent = kind === 'escalate' ? '⚠ Escalation — real regression?' : 'Approve this step?';
-      gateReason.textContent = reason;
-      gateButtons.innerHTML = '';
-      for (const opt of options) {
-        const b = document.createElement('button');
-        b.textContent = opt.label;
-        if (opt.cls) b.className = opt.cls;
-        b.onclick = () => decide(opt.value);
-        gateButtons.appendChild(b);
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NeuralQA · Agent</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #07070b; --card: rgba(255,255,255,0.035); --border: rgba(255,255,255,0.09);
+        --border-strong: rgba(255,255,255,0.16); --text: #edeef2; --muted: #9797a8; --faint: #6b6b7b;
+        --accent: #7c6cff; --accent-2: #b16cff; --accent-soft: rgba(124,108,255,0.14);
+        --green: #34d399; --green-bg: rgba(52,211,153,0.12); --red: #fb5b78; --red-bg: rgba(251,91,120,0.13);
+        --amber: #f7b955; --amber-bg: rgba(247,185,85,0.13);
+        --radius: 16px; --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 14px 40px -18px rgba(0,0,0,0.7);
+        --ring: 0 0 0 3px var(--accent-soft);
       }
-    }
-    function hideGate() { gate.classList.add('hidden'); }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 15px; line-height: 1.55; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }
+      body::before, body::after { content: ""; position: fixed; z-index: 0; filter: blur(90px); opacity: 0.5; pointer-events: none; }
+      body::before { width: 560px; height: 560px; top: -200px; left: -120px; background: radial-gradient(circle, rgba(124,108,255,0.5), transparent 65%); }
+      body::after { width: 620px; height: 620px; top: 120px; right: -200px; background: radial-gradient(circle, rgba(177,108,255,0.32), transparent 65%); }
+      .app { position: relative; z-index: 1; }
 
-    async function decide(value) {
-      hideGate();
-      await fetch(`/api/agent/${runId}/decision`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value })
-      });
-    }
+      .nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px);
+        background: linear-gradient(180deg, rgba(7,7,11,0.86), rgba(7,7,11,0.55)); border-bottom: 1px solid var(--border); }
+      .nav-in { max-width: 920px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+      .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+      .logo .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        display: grid; place-items: center; box-shadow: 0 6px 18px -6px rgba(124,108,255,0.7); }
+      .logo .mark svg { width: 17px; height: 17px; }
+      .pill-tag { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--border); padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em; }
+      .nav .spacer { flex: 1; }
+      .nav a { color: var(--muted); text-decoration: none; font-size: 13.5px; font-weight: 500; margin-left: 18px; transition: color .15s; }
+      .nav a:hover { color: var(--text); }
 
-    function onEvent(e) {
-      switch (e.type) {
-        case 'start':
-          line(`<span class="tag">goal:</span> ${esc(e.goal)}`, 'muted'); break;
-        case 'plan':
-          line(`🧠 ${esc(e.text)}`, 'plan'); break;
-        case 'tool':
-          line(`▶ <b>${e.tool}</b> <span class="pill">${e.decision}</span> <span class="muted">${esc(e.reason)}</span>`
-            + (e.input && Object.keys(e.input).length ? ` <span class="muted">${esc(JSON.stringify(e.input))}</span>` : '')); break;
-        case 'awaiting-approval':
-          showGate('approve', `"${e.tool}" — ${e.reason}`, [
-            { label: 'Approve', value: 'yes' },
-            { label: 'Decline', value: 'no', cls: 'ghost' },
-            { label: 'Abort run', value: 'abort', cls: 'bad' }
-          ]); break;
-        case 'declined':
-          line(`  ✗ declined "${e.tool}"`, 'muted'); break;
-        case 'result':
-          line(`  ${e.ok ? '✓' : '✗'} ${esc(e.summary)}`, e.ok ? 'ok' : 'bad'); break;
-        case 'error':
-          line(`  ✗ error (${e.tool}): ${esc(e.message)}`, 'bad'); break;
-        case 'escalation':
-          line(`⚠ ESCALATION: ${esc(e.reason)}`, 'bad');
-          showGate('escalate', e.reason, [
-            { label: 'Halt for triage', value: 'halt', cls: 'bad' },
-            { label: 'Continue anyway', value: 'continue', cls: 'warn' }
-          ]); break;
-        case 'done':
-          hideGate();
-          line(`■ done — ${e.outcome}${e.statePath ? ' · ' + esc(e.statePath) : ''}`,
-            e.outcome === 'completed' ? 'ok' : 'bad');
-          statusEl.textContent = `Finished: ${e.outcome}`;
-          startBtn.disabled = false;
-          break;
+      main { max-width: 920px; margin: 0 auto; padding: 44px 24px 100px; }
+      .hero { margin-bottom: 26px; }
+      .hero .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--accent-2);
+        background: var(--accent-soft); border: 1px solid rgba(124,108,255,0.25); padding: 5px 12px; border-radius: 999px; margin-bottom: 16px; }
+      .hero h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 10px; }
+      .hero h1 .grad { background: linear-gradient(120deg, #c9c2ff, var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .hero p { color: var(--muted); font-size: 15.5px; max-width: 620px; margin: 0; }
+
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(6px); padding: 20px; margin-bottom: 18px; }
+      .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); font-weight: 600; margin: 0 0 13px; }
+      textarea { width: 100%; min-height: 120px; background: rgba(0,0,0,0.25); color: var(--text); border: 1px solid var(--border);
+        border-radius: 11px; padding: 12px 14px; resize: vertical; font: 14px/1.6 "Inter", sans-serif; transition: border-color .15s, box-shadow .15s; }
+      textarea::placeholder { color: var(--faint); }
+      textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+
+      .btn { border: 0; border-radius: 11px; padding: 11px 20px; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 8px; transition: transform .12s, box-shadow .2s, background .2s, opacity .2s; }
+      .btn.primary { color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 10px 26px -10px rgba(124,108,255,0.8); }
+      .btn.primary:hover { transform: translateY(-1px); box-shadow: 0 14px 32px -10px rgba(124,108,255,0.95); }
+      .btn.primary:active { transform: translateY(0); }
+      .btn.ghost { background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+      .btn.ghost:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.07); }
+      .btn.bad { background: linear-gradient(135deg, #fb5b78, #f0476a); color: #fff; box-shadow: 0 10px 26px -12px rgba(251,91,120,0.7); }
+      .btn.warn { background: linear-gradient(135deg, #f7b955, #f0a030); color: #1c1406; box-shadow: 0 10px 26px -12px rgba(247,185,85,0.6); }
+      .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+      .row { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+      .status { color: var(--muted); font-size: 13.5px; display: inline-flex; align-items: center; }
+      .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.25); border-top-color: var(--accent-2); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 8px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .hidden { display: none; }
+
+      /* gate */
+      .gate { border-color: rgba(124,108,255,0.5); background: linear-gradient(180deg, var(--accent-soft), transparent); }
+      .gate.esc { border-color: rgba(251,91,120,0.55); background: linear-gradient(180deg, var(--red-bg), transparent); }
+      .gate .gate-title { font-size: 16px; font-weight: 700; margin: 0 0 6px; text-transform: none; letter-spacing: -0.01em; color: var(--text); }
+      .gate .reason { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+
+      /* run log */
+      #log { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.65;
+        background: rgba(0,0,0,0.32); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+        max-height: 480px; overflow-y: auto; white-space: pre-wrap; }
+      #log::-webkit-scrollbar { width: 8px; } #log::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+      .ev { margin: 3px 0; }
+      .ev .tag { color: var(--faint); }
+      .plan { color: #cdc6ff; }
+      .ok { color: var(--green); } .bad { color: var(--red); } .muted { color: var(--muted); }
+      .pill { display: inline-block; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="nav">
+        <div class="nav-in">
+          <div class="logo">
+            <span class="mark"><svg viewBox="0 0 24 24" fill="none">
+              <path d="M7 7.4 L16 11.2 M7 16.6 L16 12.8" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="6.6" cy="7" r="2.1" fill="#fff"/><circle cx="6.6" cy="17" r="2.1" fill="#fff"/><circle cx="16.6" cy="12" r="2.6" fill="#fff"/>
+            </svg></span>
+            NeuralQA
+          </div>
+          <span class="pill-tag">Agent</span>
+          <span class="spacer"></span>
+          <a href="/">Scenario Studio</a>
+        </div>
+      </nav>
+
+      <main>
+        <section class="hero">
+          <span class="eyebrow">✦ Autonomous mode</span>
+          <h1>Give it a story. The <span class="grad">agent runs the pipeline</span> itself.</h1>
+          <p>It plans and sequences every step — design, inspect, generate, verify, run, heal — pausing for your OK on side-effecting steps and stopping on a real regression instead of faking green.</p>
+        </section>
+
+        <div class="card" id="startPanel">
+          <h2>User story</h2>
+          <textarea id="story" placeholder="As a registered customer I want to log in so that I can see my orders..."></textarea>
+          <div class="row">
+            <button id="startBtn" class="btn primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 4l14 8-14 8V4z"/></svg>
+              Start agent
+            </button>
+            <span class="status" id="status"></span>
+          </div>
+        </div>
+
+        <div class="card gate hidden" id="gate">
+          <p class="gate-title" id="gateTitle">Decision needed</p>
+          <p class="reason" id="gateReason"></p>
+          <div class="row" id="gateButtons"></div>
+        </div>
+
+        <div class="card hidden" id="runPanel">
+          <h2>Run timeline</h2>
+          <div id="log"></div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const startBtn = $('startBtn'), storyEl = $('story'), statusEl = $('status');
+      const logEl = $('log'), runPanel = $('runPanel');
+      const gate = $('gate'), gateTitle = $('gateTitle'), gateReason = $('gateReason'), gateButtons = $('gateButtons');
+      let runId = null;
+
+      function line(html, cls) {
+        const div = document.createElement('div');
+        div.className = 'ev' + (cls ? ' ' + cls : '');
+        div.innerHTML = html;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
       }
-    }
+      const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-    startBtn.onclick = async () => {
-      const story = storyEl.value.trim();
-      if (!story) { statusEl.textContent = 'Enter a story first.'; return; }
-      startBtn.disabled = true;
-      statusEl.textContent = 'Starting…';
-      logEl.innerHTML = '';
-      runPanel.classList.remove('hidden');
-      try {
-        const r = await fetch('/api/agent/start', {
+      function showGate(kind, reason, options) {
+        gate.classList.remove('hidden');
+        gate.classList.toggle('esc', kind === 'escalate');
+        gateTitle.textContent = kind === 'escalate' ? '⚠ Escalation — real regression?' : 'Approve this step?';
+        gateReason.textContent = reason;
+        gateButtons.innerHTML = '';
+        for (const opt of options) {
+          const b = document.createElement('button');
+          b.textContent = opt.label;
+          b.className = 'btn ' + (opt.cls || 'primary');
+          b.onclick = () => decide(opt.value);
+          gateButtons.appendChild(b);
+        }
+        gate.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      function hideGate() { gate.classList.add('hidden'); }
+
+      async function decide(value) {
+        hideGate();
+        await fetch(`/api/agent/${runId}/decision`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ story })
+          body: JSON.stringify({ value })
         });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'failed to start');
-        runId = data.runId;
-        statusEl.textContent = 'Running…';
-        const src = new EventSource(`/api/agent/${runId}/events`);
-        src.onmessage = (m) => onEvent(JSON.parse(m.data));
-        src.onerror = () => src.close();
-      } catch (err) {
-        statusEl.textContent = 'Error: ' + err.message;
-        startBtn.disabled = false;
       }
-    };
-  </script>
-</body>
+
+      function onEvent(e) {
+        switch (e.type) {
+          case 'start':
+            line(`<span class="tag">goal:</span> ${esc(e.goal)}`, 'muted'); break;
+          case 'plan':
+            line(`🧠 ${esc(e.text)}`, 'plan'); break;
+          case 'tool':
+            line(`▶ <b>${e.tool}</b> <span class="pill">${e.decision}</span> <span class="muted">${esc(e.reason)}</span>`
+              + (e.input && Object.keys(e.input).length ? ` <span class="muted">${esc(JSON.stringify(e.input))}</span>` : '')); break;
+          case 'awaiting-approval':
+            showGate('approve', `"${e.tool}" — ${e.reason}`, [
+              { label: 'Approve', value: 'yes' },
+              { label: 'Decline', value: 'no', cls: 'ghost' },
+              { label: 'Abort run', value: 'abort', cls: 'bad' }
+            ]); break;
+          case 'declined':
+            line(`  ✗ declined "${e.tool}"`, 'muted'); break;
+          case 'result':
+            line(`  ${e.ok ? '✓' : '✗'} ${esc(e.summary)}`, e.ok ? 'ok' : 'bad'); break;
+          case 'error':
+            line(`  ✗ error (${e.tool}): ${esc(e.message)}`, 'bad'); break;
+          case 'escalation':
+            line(`⚠ ESCALATION: ${esc(e.reason)}`, 'bad');
+            showGate('escalate', e.reason, [
+              { label: 'Halt for triage', value: 'halt', cls: 'bad' },
+              { label: 'Continue anyway', value: 'continue', cls: 'warn' }
+            ]); break;
+          case 'done':
+            hideGate();
+            line(`■ done — ${e.outcome}${e.statePath ? ' · ' + esc(e.statePath) : ''}`, e.outcome === 'completed' ? 'ok' : 'bad');
+            statusEl.textContent = `Finished: ${e.outcome}`;
+            startBtn.disabled = false;
+            break;
+        }
+      }
+
+      startBtn.onclick = async () => {
+        const story = storyEl.value.trim();
+        if (!story) { statusEl.textContent = 'Enter a story first.'; return; }
+        startBtn.disabled = true;
+        statusEl.innerHTML = '<span class="spinner"></span>Starting…';
+        logEl.innerHTML = '';
+        runPanel.classList.remove('hidden');
+        try {
+          const r = await fetch('/api/agent/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ story })
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'failed to start');
+          runId = data.runId;
+          statusEl.innerHTML = '<span class="spinner"></span>Running…';
+          const src = new EventSource(`/api/agent/${runId}/events`);
+          src.onmessage = (m) => onEvent(JSON.parse(m.data));
+          src.onerror = () => src.close();
+        } catch (err) {
+          statusEl.textContent = 'Error: ' + err.message;
+          startBtn.disabled = false;
+        }
+      };
+    </script>
+  </body>
 </html>
