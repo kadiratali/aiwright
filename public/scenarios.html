@@ -188,6 +188,9 @@
       .files { margin-top: 14px; font-family: "JetBrains Mono", monospace; font-size: 12.5px; }
       .files .f { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--muted); }
       .files .f .plus { color: var(--green); font-weight: 700; }
+      .pstep { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px; color: var(--muted); }
+      .pstep .pok { color: var(--green); font-weight: 700; width: 15px; text-align: center; flex: 0 0 auto; }
+      .pstep .spinner { margin: 0; flex: 0 0 auto; }
 
       /* skeleton */
       .sk { border: 1px solid var(--border); border-radius: 13px; padding: 16px; margin-bottom: 10px; background: var(--card); }
@@ -435,42 +438,71 @@
           $('go').disabled = false;
         }
       };
-      async function runSuite() {
+      function runSuite() {
         $('run').disabled = true; $('gen').disabled = true;
-        $('genStatus').innerHTML = '<span class="spinner"></span>Inspecting, generating &amp; running against your site… this can take a couple of minutes.';
-        $('genOut').innerHTML = '';
+        $('genStatus').innerHTML = '<span class="spinner"></span>Starting run…';
+        $('genOut').innerHTML = '<div class="card"><h2 style="margin:0 0 12px">Live run</h2><div id="prog"></div></div>';
         setStep(3);
-        try {
-          const r = await fetch('/api/run-suite', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...state.ctx, design: state.data.design, selected: [...state.selected] })
-          });
-          const res = await r.json();
-          if (!r.ok) throw new Error(res.error || 'Run failed');
-          let h;
-          if (res.stage === 'compile') {
-            h = '<div class="result bad"><div class="head">✗ Generated suite did not compile' +
-              (res.rounds ? '<span class="badge2">' + res.rounds + ' self-correct round(s)</span>' : '') + '</div>' +
-              '<div class="files" style="margin-top:10px;color:#ffc2cd">' + (res.errors || []).map((e) => '<div class="f">' + esc((e.file || '').split('/').pop()) + ':' + e.line + ' ' + esc(e.message) + '</div>').join('') + '</div></div>';
+
+        const steps = [];
+        const renderSteps = () => {
+          $('prog').innerHTML = steps.map((s) =>
+            '<div class="pstep">' + (s.done ? '<span class="pok">✓</span>' : '<span class="spinner"></span>') + '<span>' + esc(s.label) + '</span></div>'
+          ).join('');
+        };
+        const onStage = (e) => {
+          if (e.done) {
+            if (steps.length && !steps[steps.length - 1].done) steps[steps.length - 1] = { label: e.label, done: true };
+            else steps.push({ label: e.label, done: true });
           } else {
-            const ok = res.ok;
+            if (steps.length && !steps[steps.length - 1].done) steps[steps.length - 1].done = true;
+            steps.push({ label: e.label, done: false });
+          }
+          renderSteps();
+        };
+        const finish = (e) => {
+          steps.forEach((s) => (s.done = true)); renderSteps();
+          let h;
+          if (e.stage === 'compile') {
+            h = '<div class="result bad"><div class="head">✗ Generated suite did not compile' +
+              (e.rounds ? '<span class="badge2">' + e.rounds + ' self-correct round(s)</span>' : '') + '</div>' +
+              '<div class="files" style="margin-top:10px;color:#ffc2cd">' + (e.errors || []).map((x) => '<div class="f">' + esc((x.file || '').split('/').pop()) + ':' + x.line + ' ' + esc(x.message) + '</div>').join('') + '</div></div>';
+          } else {
+            const ok = e.ok;
             h = '<div class="result ' + (ok ? 'ok' : 'bad') + '"><div class="head">' +
-              (ok ? '✓ ' + res.passed + ' scenario(s) passed' : '✗ ' + res.passed + ' passed · ' + res.failed + ' failed') +
-              '<span class="badge2">UI lane</span>' + (res.rounds ? '<span class="badge2">' + res.rounds + ' heal round(s)</span>' : '') + '</div>' +
-              (res.reportUrl
-                ? '<div style="margin-top:14px"><a class="btn btn-primary" href="' + res.reportUrl + '" target="_blank" rel="noopener">Open Allure report ↗</a></div>'
+              (ok ? '✓ ' + e.passed + ' scenario(s) passed' : '✗ ' + e.passed + ' passed · ' + e.failed + ' failed') +
+              '<span class="badge2">UI lane</span>' + (e.rounds ? '<span class="badge2">' + e.rounds + ' heal round(s)</span>' : '') + '</div>' +
+              (e.reportUrl
+                ? '<div style="margin-top:14px"><a class="btn btn-primary" href="' + e.reportUrl + '" target="_blank" rel="noopener">Open Allure report ↗</a></div>'
                 : '<div class="files" style="margin-top:10px">Report could not be rendered (is the Allure CLI / Java available?).</div>') +
               '</div>';
           }
-          $('genOut').innerHTML = h;
+          $('genOut').insertAdjacentHTML('beforeend', h);
           $('genStatus').textContent = 'Done.';
           $('genOut').scrollIntoView({ behavior: 'smooth', block: 'end' });
-        } catch (e) {
-          $('genOut').innerHTML = '<div class="error-card">' + esc(e.message) + '</div>';
-          $('genStatus').textContent = 'Run failed.';
-        } finally {
           updateBar();
-        }
+        };
+        const fail = (msg) => {
+          $('genOut').insertAdjacentHTML('beforeend', '<div class="error-card">' + esc(msg) + '</div>');
+          $('genStatus').textContent = 'Run failed.';
+          updateBar();
+        };
+
+        fetch('/api/run-suite', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...state.ctx, design: state.data.design, selected: [...state.selected] })
+        }).then((r) => r.json().then((d) => ({ ok: r.ok, d }))).then(({ ok, d }) => {
+          if (!ok) throw new Error(d.error || 'Run failed');
+          $('genStatus').innerHTML = '<span class="spinner"></span>Running…';
+          const src = new EventSource('/api/run/' + d.runId + '/events');
+          src.onmessage = (m) => {
+            const e = JSON.parse(m.data);
+            if (e.type === 'stage') onStage(e);
+            else if (e.type === 'done') { src.close(); finish(e); }
+            else if (e.type === 'error') { src.close(); fail(e.message); }
+          };
+          src.onerror = () => src.close();
+        }).catch((e) => fail(e.message));
       }
 
       $('gen').onclick = generateSuite;

@@ -313,9 +313,87 @@ function buildAllureReport(ws: string, outDir: string): boolean {
   }
 }
 
-// PRODUCT flow (run-as-a-service): selected scenarios -> generate a UI suite IN AN ISOLATED
-// WORKSPACE -> run it against the entered site -> render a PER-RUN Allure report. The workspace is
-// a throwaway clone (no shared cwd writes, concurrent-safe); only the report is kept and served.
+// ---- Run-as-a-service jobs (live progress over SSE) -------------------------
+interface RunJob {
+  id: string;
+  events: any[]; // buffered so a late/refreshed client replays from the start
+  clients: Response[];
+  finished: boolean;
+}
+const runJobs = new Map<string, RunJob>();
+
+function emitRun(job: RunJob, e: any): void {
+  job.events.push(e);
+  const frame = `data: ${JSON.stringify(e)}\n\n`;
+  for (const c of job.clients) c.write(frame);
+  if (e.type === 'done' || e.type === 'error') {
+    job.finished = true;
+    for (const c of job.clients) c.end();
+    job.clients = [];
+    setTimeout(() => runJobs.delete(job.id), 60_000); // let late clients replay, then drop
+  }
+}
+
+/** The actual pipeline, emitting a stage event before each step so the UI shows live progress. */
+async function runSuiteJob(job: RunJob, args: { siteUrl: string; stories: string; approved: TestDesign }): Promise<void> {
+  const { siteUrl, stories, approved } = args;
+  const { ws, id } = setupWorkspace(process.cwd());
+  try {
+    emitRun(job, { type: 'stage', stage: 'inspect', label: `Inspecting ${siteUrl}…` });
+    const map = await inspectPage(siteUrl);
+    emitRun(job, { type: 'stage', stage: 'inspect', done: true, label: `Inspected — ${map.entries.length} elements found` });
+    const mapJson = JSON.stringify(map, null, 2);
+
+    emitRun(job, { type: 'stage', stage: 'generate', label: 'Generating the UI suite…' });
+    const storyText = stories || approved.understanding || approved.title;
+    let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
+    let written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+    let verify = verifyTypeScript(tsScope(written), ws);
+    emitRun(job, { type: 'stage', stage: 'generate', done: true, label: 'Suite generated' });
+
+    let rounds = 0;
+    while (!verify.ok && rounds < 2) {
+      rounds++;
+      emitRun(job, { type: 'stage', stage: 'heal', label: `Fixing compile errors (round ${rounds})…` });
+      artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui', ws), mapJson, 'ui');
+      written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+      verify = verifyTypeScript(tsScope(written), ws);
+      emitRun(job, { type: 'stage', stage: 'heal', done: true, label: `Round ${rounds}: ${verify.ok ? 'compiles ✓' : 'errors remain'}` });
+    }
+    if (!verify.ok) {
+      emitRun(job, { type: 'done', ok: false, stage: 'compile', rounds, errors: verify.errors });
+      return;
+    }
+
+    const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
+    emitRun(job, { type: 'stage', stage: 'run', label: `Running “${title}” against ${siteUrl}…` });
+    const run = runFeature(title, ws, { TARGET_URL: siteUrl, BASE_URL: siteUrl });
+    emitRun(job, {
+      type: 'stage',
+      stage: 'run',
+      done: true,
+      label: run.ok ? `${run.passed} passed` : `${run.passed} passed · ${run.failed} failed`
+    });
+
+    emitRun(job, { type: 'stage', stage: 'report', label: 'Rendering the Allure report…' });
+    const reported = buildAllureReport(ws, path.join(RUN_REPORTS_DIR, id));
+    emitRun(job, {
+      type: 'done',
+      ok: run.ok,
+      stage: 'run',
+      feature: title,
+      passed: run.passed,
+      failed: run.failed,
+      rounds,
+      reportUrl: reported ? `/report/${id}/index.html` : null
+    });
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+}
+
+// PRODUCT flow (run-as-a-service): start the run, return a runId; progress streams over
+// /api/run/:id/events. Each run executes in an isolated throwaway workspace (see setupWorkspace).
 app.post(
   '/api/run-suite',
   handler(async (req, res) => {
@@ -338,46 +416,36 @@ app.post(
     }
     const approved: TestDesign = { ...design, scenarios };
 
-    const { ws, id } = setupWorkspace(process.cwd());
-    try {
-      // 1) Generate a UI suite (grounded in a live inspect) INTO the workspace.
-      const mapJson = JSON.stringify(await inspectPage(siteUrl), null, 2);
-      const storyText = stories || approved.understanding || approved.title;
-      let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
-      let written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
-      let verify = verifyTypeScript(tsScope(written), ws);
-      let rounds = 0;
-      while (!verify.ok && rounds < 2) {
-        rounds++;
-        artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui', ws), mapJson, 'ui');
-        written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
-        verify = verifyTypeScript(tsScope(written), ws);
-      }
-      if (!verify.ok) {
-        res.json({ ok: false, stage: 'compile', rounds, errors: verify.errors });
-        return;
-      }
+    const id = crypto.randomUUID();
+    const job: RunJob = { id, events: [], clients: [], finished: false };
+    runJobs.set(id, job);
+    res.json({ runId: id });
 
-      // 2) Run ONLY the generated feature, in the workspace, against the entered site.
-      const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
-      const run = runFeature(title, ws, { TARGET_URL: siteUrl, BASE_URL: siteUrl });
-
-      // 3) Render a per-run Allure report (kept after the workspace is discarded).
-      const reported = buildAllureReport(ws, path.join(RUN_REPORTS_DIR, id));
-      res.json({
-        ok: run.ok,
-        stage: 'run',
-        feature: title,
-        passed: run.passed,
-        failed: run.failed,
-        rounds,
-        reportUrl: reported ? `/report/${id}/index.html` : null
-      });
-    } finally {
-      fs.rmSync(ws, { recursive: true, force: true });
-    }
+    // Fire and forget; progress + result flow through SSE, not this HTTP response.
+    runSuiteJob(job, { siteUrl, stories, approved }).catch((err) =>
+      emitRun(job, { type: 'error', message: err?.message ?? String(err) })
+    );
   })
 );
+
+// Live progress stream for a run (Server-Sent Events).
+app.get('/api/run/:id/events', (req, res) => {
+  const j = runJobs.get(String(req.params.id));
+  if (!j) {
+    res.status(404).json({ error: 'Unknown run.' });
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  for (const e of j.events) res.write(`data: ${JSON.stringify(e)}\n\n`); // replay history
+  if (j.finished) {
+    res.end();
+    return;
+  }
+  j.clients.push(res);
+  req.on('close', () => {
+    j.clients = j.clients.filter((c) => c !== res);
+  });
+});
 
 // Write previewed artifacts into the project (never overwrites existing files), then
 // type-check them so the UI shows whether the generated code compiles.
