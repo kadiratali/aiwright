@@ -200,8 +200,9 @@ export const DESIGNER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: given a user story (with optional acceptance criteria), produce a TEST DESIGN
 - the "what to test" layer that a human Test Lead reviews and curates BEFORE any code is
-written. Do NOT write Gherkin, step definitions, or page objects. Think like an
-experienced tester applying judgement, not an automation script writer.
+written. For each scenario include its Gherkin steps (so the reviewer sees exactly what would
+run), but do NOT write step-definition code or page objects. Think like an experienced tester
+applying judgement, not an automation script writer.
 
 Produce:
 - A short restatement of what the feature must do (so the reviewer can catch
@@ -210,13 +211,17 @@ Produce:
   with a severity and a concrete reason. Think beyond the happy path: state transitions,
   concurrency, session/auth boundaries, data validation, money/quantity math, permissions,
   empty/large/duplicate inputs, error recovery, idempotency.
-- Test scenarios as IDEAS (titles + rationale), not steps. Cover happy path, negative
-  cases, and edge/boundary cases the acceptance criteria only imply. Tag and prioritise
-  each (P0 = must, P1 = should, P2 = nice-to-have) so a human can cut the list. In each
-  rationale, name the KEY OBSERVABLE OUTCOMES the scenario must verify - what the user
-  should see after the action AND what should NOT happen (e.g. error shown + still
-  unauthenticated + no navigation) - so generation has enough to write rich, multi-
-  assertion checks. This is the "what to verify", still not Gherkin steps.
+- Test scenarios. Cover happy path, negative cases, and edge/boundary cases the acceptance
+  criteria only imply. Tag and prioritise each (P0 = must, P1 = should, P2 = nice-to-have) so a
+  human can cut the list. For EACH scenario provide:
+    - a rationale naming the KEY OBSERVABLE OUTCOMES it must verify - what the user should see
+      after the action AND what should NOT happen (e.g. error shown + still unauthenticated + no
+      navigation);
+    - its "gherkin": the concrete Given/When/Then/And steps (no "Scenario:" header), in English,
+      DECLARATIVE (state intent and outcomes - "the visitor searches for {term}", "results are
+      shown" - never click-by-click UI mechanics). A Then should assert real consequences, usually
+      more than one. This is the scenario a reviewer reads and that generation turns into a
+      runnable feature.
 - Open questions: ambiguous or missing requirements that a human must clarify before
   testing makes sense. This is where you challenge the story.
 - Assumptions you had to make to design these tests.
@@ -244,6 +249,10 @@ An approved TEST DESIGN follows. It has been reviewed and curated by a human Tes
 and is the authoritative scope for WHICH scenarios to implement. Rules:
 - Implement exactly the scenarios it lists - do not invent new scenarios and do not drop
   listed ones. The human's curation (including deletions) is intentional.
+- Each scenario already includes its Gherkin steps. Implement THOSE steps (keep the scenario
+  title and the intent/outcomes of each Given/When/Then) so the runnable feature matches what the
+  reviewer approved. You may only adjust wording to reuse an existing step phrasing or bind a real
+  selector - never change what a scenario tests.
 - Honour each scenario's priority and suggested tags when tagging the Gherkin scenarios.
 - Do not block on the design's open questions; implement what is testable now and surface
   any unresolved question or affected scenario in the "notes" field.
