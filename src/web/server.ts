@@ -2,34 +2,39 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import express, { Request, Response } from 'express';
 import { designTests, renderDesignMarkdown, TestDesign } from '../ai/testDesigner';
 import { generateTests, writeArtifacts, correctArtifacts, GeneratedArtifacts } from '../ai/testGenerator';
 import { inspectPage, SelectorMap } from '../ai/pageInspector';
+import { authenticate, type AuthOptions, type StorageState } from '../ai/auth';
 import { probeApi, EndpointMap } from '../ai/specProbe';
-import { verifyTypeScript } from '../ai/verifier';
+import { verifyTypeScript, runFeature } from '../ai/verifier';
 import { runAgent } from '../agent/orchestrator';
 import { AgentIO, AgentEvent } from '../agent/io';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+// Per-run Allure reports are served here at /report/<runId>/.
+const RUN_REPORTS_DIR = path.join(process.cwd(), 'reports', 'run-reports');
+app.use('/report', express.static(RUN_REPORTS_DIR));
 // Scenario Studio is the home page ('/'); the older code studio (index.html) is retired.
 app.use(express.static(path.join(process.cwd(), 'public'), { index: 'scenarios.html' }));
 
 const tsScope = (written: string[]) => written.map((w) => w.split(' ')[0]).filter((f) => f.endsWith('.ts'));
 
 /** Reads the project source files the self-correction step may need to update (mode-aware). */
-function projectSources(mode: 'ui' | 'api' = 'ui'): { fileName: string; content: string }[] {
+function projectSources(mode: 'ui' | 'api' = 'ui', rootDir = process.cwd()): { fileName: string; content: string }[] {
   const dirs = mode === 'api' ? ['src/api', 'src/steps/api'] : ['src/pages', 'src/fixtures'];
   const out: { fileName: string; content: string }[] = [];
   const walk = (rel: string) => {
-    const abs = path.join(process.cwd(), rel);
+    const abs = path.join(rootDir, rel);
     if (!fs.existsSync(abs)) return;
     for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
       const childRel = path.join(rel, entry.name);
       if (entry.isDirectory()) walk(childRel);
       else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.generated') && !entry.name.endsWith('.bak')) {
-        out.push({ fileName: childRel, content: fs.readFileSync(path.join(process.cwd(), childRel), 'utf-8') });
+        out.push({ fileName: childRel, content: fs.readFileSync(path.join(rootDir, childRel), 'utf-8') });
       }
     }
   };
@@ -116,10 +121,18 @@ async function probeSpecInput(input: string): Promise<EndpointMap> {
   }
 }
 
-// PRODUCT flow: { stories, siteUrl?, apiSpec? } -> scenarios. Grounds the test design in the real
-// system — a live UI inspect (siteUrl), an OpenAPI probe (apiSpec = URL or pasted JSON), or both —
-// and returns the scenarios (no code written). "Enter your site and/or API, share your stories,
-// get the scenarios."
+/** Reads optional login credentials from a request body. */
+function authFrom(body: any): AuthOptions | undefined {
+  const a = body?.auth;
+  if (a && a.loginUrl && a.username && a.password) {
+    return { loginUrl: String(a.loginUrl), username: String(a.username), password: String(a.password) };
+  }
+  return undefined;
+}
+
+// PRODUCT flow: { stories, siteUrl?, apiSpec?, auth? } -> scenarios. Grounds the test design in the
+// real system — a live UI inspect (siteUrl, authenticated if login creds are given), an OpenAPI
+// probe (apiSpec), or both — and returns the scenarios (no code written).
 app.post(
   '/api/scenarios',
   handler(async (req, res) => {
@@ -142,7 +155,9 @@ app.post(
         res.status(400).json({ error: 'Site URL must start with http:// or https://' });
         return;
       }
-      const map = await inspectPage(siteUrl);
+      const auth = authFrom(req.body);
+      const storageState = auth ? await authenticate(auth) : undefined;
+      const map = await inspectPage(siteUrl, { storageState });
       contexts.push(siteContextFrom(map));
       site = { title: map.title, url: map.url, elements: map.entries.length, warnings: map.warnings };
     }
@@ -248,6 +263,220 @@ app.post(
     });
   })
 );
+
+// Minimal single-project Playwright config written into each run workspace: chromium only,
+// baseURL pinned to that run's TARGET_URL, Allure results, no webServer/mock, UI steps only.
+const WORKSPACE_CONFIG = `import { defineConfig } from '@playwright/test';
+import { defineBddConfig } from 'playwright-bdd';
+
+const testDir = defineBddConfig({
+  features: 'features/**/*.feature',
+  steps: ['src/steps/*.ts', 'src/fixtures/**/*.ts']
+});
+
+export default defineConfig({
+  testDir,
+  reporter: [['list'], ['allure-playwright', { resultsDir: 'reports/allure-results' }]],
+  use: {
+    baseURL: process.env.TARGET_URL,
+    storageState: process.env.NQ_STORAGE_STATE || undefined,
+    headless: true,
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure'
+  },
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }]
+});
+`;
+
+/**
+ * Creates an isolated, runnable workspace for ONE run: a clone of the project (node_modules
+ * symlinked to stay fast/cheap, secrets + reports + existing features excluded) with a minimal
+ * single-project config and an empty features/ for the generated suite. Each run is sandboxed —
+ * no shared-cwd writes, no cross-run collisions, its own TARGET_URL.
+ */
+function setupWorkspace(rootDir: string): { ws: string; id: string } {
+  const id = crypto.randomUUID().slice(0, 8);
+  const ws = path.join(os.tmpdir(), `neuralqa-run-${id}`);
+  const SKIP = ['node_modules', '.git', 'reports', '.features-gen', 'dist', 'features', '.env', 'fixtures/sensitive'];
+  fs.cpSync(rootDir, ws, {
+    recursive: true,
+    filter: (src) => {
+      const rel = path.relative(rootDir, src);
+      return rel === '' || !SKIP.some((s) => rel === s || rel.startsWith(s + path.sep));
+    }
+  });
+  fs.symlinkSync(path.join(rootDir, 'node_modules'), path.join(ws, 'node_modules'), 'dir');
+  fs.mkdirSync(path.join(ws, 'features'), { recursive: true });
+  fs.writeFileSync(path.join(ws, 'playwright.config.ts'), WORKSPACE_CONFIG);
+  return { ws, id };
+}
+
+/** Renders the Allure HTML report from <ws>/reports/allure-results into outDir. */
+function buildAllureReport(ws: string, outDir: string): boolean {
+  const local = path.join(ws, 'node_modules', '.bin', 'allure');
+  const bin = fs.existsSync(local) ? local : 'allure';
+  try {
+    execFileSync(bin, ['generate', path.join(ws, 'reports', 'allure-results'), '--clean', '-o', outDir], {
+      stdio: 'ignore'
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---- Run-as-a-service jobs (live progress over SSE) -------------------------
+interface RunJob {
+  id: string;
+  events: any[]; // buffered so a late/refreshed client replays from the start
+  clients: Response[];
+  finished: boolean;
+}
+const runJobs = new Map<string, RunJob>();
+
+function emitRun(job: RunJob, e: any): void {
+  job.events.push(e);
+  const frame = `data: ${JSON.stringify(e)}\n\n`;
+  for (const c of job.clients) c.write(frame);
+  if (e.type === 'done' || e.type === 'error') {
+    job.finished = true;
+    for (const c of job.clients) c.end();
+    job.clients = [];
+    setTimeout(() => runJobs.delete(job.id), 60_000); // let late clients replay, then drop
+  }
+}
+
+/** The actual pipeline, emitting a stage event before each step so the UI shows live progress. */
+async function runSuiteJob(
+  job: RunJob,
+  args: { siteUrl: string; stories: string; approved: TestDesign; auth?: AuthOptions }
+): Promise<void> {
+  const { siteUrl, stories, approved, auth } = args;
+  const { ws, id } = setupWorkspace(process.cwd());
+  try {
+    // 0) Log in first (if credentials given) so inspect + run both see the app behind the wall.
+    let storageState: StorageState | undefined;
+    let stateFile: string | undefined;
+    if (auth) {
+      emitRun(job, { type: 'stage', stage: 'login', label: `Logging in at ${auth.loginUrl}…` });
+      storageState = await authenticate(auth);
+      stateFile = path.join(ws, 'auth-state.json');
+      fs.writeFileSync(stateFile, JSON.stringify(storageState));
+      emitRun(job, { type: 'stage', stage: 'login', done: true, label: `Logged in — ${storageState.cookies.length} cookie(s)` });
+    }
+
+    emitRun(job, { type: 'stage', stage: 'inspect', label: `Inspecting ${siteUrl}…` });
+    const map = await inspectPage(siteUrl, { storageState });
+    emitRun(job, { type: 'stage', stage: 'inspect', done: true, label: `Inspected — ${map.entries.length} elements found` });
+    const mapJson = JSON.stringify(map, null, 2);
+
+    emitRun(job, { type: 'stage', stage: 'generate', label: 'Generating the UI suite…' });
+    const storyText = stories || approved.understanding || approved.title;
+    let artifacts = await generateTests(storyText, renderDesignMarkdown(approved), mapJson, undefined, 'ui');
+    let written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+    let verify = verifyTypeScript(tsScope(written), ws);
+    emitRun(job, { type: 'stage', stage: 'generate', done: true, label: 'Suite generated' });
+
+    let rounds = 0;
+    while (!verify.ok && rounds < 2) {
+      rounds++;
+      emitRun(job, { type: 'stage', stage: 'heal', label: `Fixing compile errors (round ${rounds})…` });
+      artifacts = await correctArtifacts(storyText, artifacts, verify.errors, projectSources('ui', ws), mapJson, 'ui');
+      written = writeArtifacts(artifacts, ws, { overwrite: true }, 'ui');
+      verify = verifyTypeScript(tsScope(written), ws);
+      emitRun(job, { type: 'stage', stage: 'heal', done: true, label: `Round ${rounds}: ${verify.ok ? 'compiles ✓' : 'errors remain'}` });
+    }
+    if (!verify.ok) {
+      emitRun(job, { type: 'done', ok: false, stage: 'compile', rounds, errors: verify.errors });
+      return;
+    }
+
+    const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
+    emitRun(job, { type: 'stage', stage: 'run', label: `Running “${title}” against ${siteUrl}…` });
+    const run = runFeature(title, ws, {
+      TARGET_URL: siteUrl,
+      BASE_URL: siteUrl,
+      ...(stateFile ? { NQ_STORAGE_STATE: stateFile } : {})
+    });
+    emitRun(job, {
+      type: 'stage',
+      stage: 'run',
+      done: true,
+      label: run.ok ? `${run.passed} passed` : `${run.passed} passed · ${run.failed} failed`
+    });
+
+    emitRun(job, { type: 'stage', stage: 'report', label: 'Rendering the Allure report…' });
+    const reported = buildAllureReport(ws, path.join(RUN_REPORTS_DIR, id));
+    emitRun(job, {
+      type: 'done',
+      ok: run.ok,
+      stage: 'run',
+      feature: title,
+      passed: run.passed,
+      failed: run.failed,
+      rounds,
+      reportUrl: reported ? `/report/${id}/index.html` : null
+    });
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+}
+
+// PRODUCT flow (run-as-a-service): start the run, return a runId; progress streams over
+// /api/run/:id/events. Each run executes in an isolated throwaway workspace (see setupWorkspace).
+app.post(
+  '/api/run-suite',
+  handler(async (req, res) => {
+    const stories = String(req.body?.stories ?? '').trim();
+    const siteUrl = String(req.body?.siteUrl ?? '').trim();
+    const design = req.body?.design as TestDesign | undefined;
+    const selected = (req.body?.selected as number[] | undefined) ?? [];
+    if (!siteUrl || !/^https?:\/\//i.test(siteUrl)) {
+      res.status(400).json({ error: 'A site URL (http/https) is required to run UI tests.' });
+      return;
+    }
+    if (!design) {
+      res.status(400).json({ error: 'Provide the design.' });
+      return;
+    }
+    const scenarios = design.scenarios.filter((_, i) => selected.includes(i));
+    if (scenarios.length === 0) {
+      res.status(400).json({ error: 'Select at least one scenario.' });
+      return;
+    }
+    const approved: TestDesign = { ...design, scenarios };
+    const auth = authFrom(req.body);
+
+    const id = crypto.randomUUID();
+    const job: RunJob = { id, events: [], clients: [], finished: false };
+    runJobs.set(id, job);
+    res.json({ runId: id });
+
+    // Fire and forget; progress + result flow through SSE, not this HTTP response.
+    runSuiteJob(job, { siteUrl, stories, approved, auth }).catch((err) =>
+      emitRun(job, { type: 'error', message: err?.message ?? String(err) })
+    );
+  })
+);
+
+// Live progress stream for a run (Server-Sent Events).
+app.get('/api/run/:id/events', (req, res) => {
+  const j = runJobs.get(String(req.params.id));
+  if (!j) {
+    res.status(404).json({ error: 'Unknown run.' });
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  for (const e of j.events) res.write(`data: ${JSON.stringify(e)}\n\n`); // replay history
+  if (j.finished) {
+    res.end();
+    return;
+  }
+  j.clients.push(res);
+  req.on('close', () => {
+    j.clients = j.clients.filter((c) => c !== res);
+  });
+});
 
 // Write previewed artifacts into the project (never overwrites existing files), then
 // type-check them so the UI shows whether the generated code compiles.

@@ -298,6 +298,8 @@ function buildCandidate(raw: RawEl): SelectorEntry {
 
 export interface InspectOptions {
   loginUserKey?: string;
+  /** A saved logged-in session (Playwright storageState) to inspect the page authenticated. */
+  storageState?: string | { cookies: any[]; origins: any[] };
 }
 
 export async function inspectPage(target: string, opts: InspectOptions = {}): Promise<SelectorMap> {
@@ -306,7 +308,7 @@ export async function inspectPage(target: string, opts: InspectOptions = {}): Pr
 
   const url = /^https?:\/\//.test(target) ? target : target.startsWith('/') ? target : `/${target}`;
   const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL: config.targetUrl });
+  const context = await browser.newContext({ baseURL: config.targetUrl, storageState: opts.storageState });
   const page = await context.newPage();
   const warnings: string[] = [];
 

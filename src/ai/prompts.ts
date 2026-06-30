@@ -58,13 +58,18 @@ Rules:
 export const GENERATOR_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: given a user story (with optional acceptance criteria), produce a complete,
-runnable test artifact set: one .feature file, one .steps.ts file, and any new Page
-Objects needed. New page objects must be referenced via fixtures - include the exact
-fixture-registration snippet for src/fixtures/index.ts (the extend entry and the import)
-in the "notes" field so a human can wire it in. If the steps need new test data, include
-the JSON to add under fixtures/ in "notes" as well. If selectors for the application are
-unknown, derive them from the story if provided, otherwise use clearly marked placeholder
-selectors with TODO comments.
+RUNNABLE test artifact set: one .feature file, one .steps.ts file, and any new Page Objects.
+
+CRITICAL — auto-wire fixtures so the suite runs WITHOUT manual steps: every page object a step
+uses (e.g. \`{ homePage }\`) must be a registered fixture. When you add a NEW page object, return
+the FULL updated src/fixtures/index.ts in "supportFiles" (path: "src/fixtures/index.ts"), merging
+in the new entry — its import AND the PageFixtures type field AND the extend registration, e.g.
+\`homePage: async ({ page }, use) => use(new HomePage(page))\` — while PRESERVING every existing
+fixture. Do NOT just describe this in "notes"; an unregistered fixture is a compile error. Reuse an
+existing page-object fixture when one already fits (see the PROJECT API SURFACE) rather than adding
+a duplicate. If the steps need new test data, include the JSON to add under fixtures/ in "notes".
+If selectors are unknown, derive them from the story/selector-map, otherwise use clearly marked
+placeholder selectors with TODO comments.
 
 Scenario depth - write thorough scenarios, not 2-line stubs:
 - Each scenario must have BETWEEN 6 AND 10 steps (counting Given/When/Then/And/But lines,
@@ -105,9 +110,11 @@ driven by Playwright's APIRequestContext. There is NO browser, NO page object, N
   which exposes protected get(path, params?) and post(path, data?) over APIRequestContext. Name a
   client method after the operation (search/fetch/create) — NOT get/post (those are the protected
   base methods; reusing the name shadows them).
-- Response contracts live in src/api/contracts/*.ts as dependency-free validators: an exported
-  interface for the shape PLUS a validateXxx(body): string[] returning a list of problems (empty =
-  valid). A client validates a 200 body and THROWS "Contract violation: ..." when it drifts.
+- Response contracts live in src/api/contracts/*.ts as Zod schemas: \`export const Foo = z.object({...})\`
+  is the single source of truth for BOTH the type (\`export type Foo = z.infer<typeof Foo>\`) and the
+  runtime validation, PLUS a \`validateXxx(body): string[]\` that safeParses and maps issues to
+  \`path: message\` lines (empty = valid). A client validates a 200 body and THROWS
+  "Contract violation: ..." when it drifts. Import \`{ z } from 'zod'\`.
 - There is ONE shared state fixture, apiState ({ last?: { status, body } }), in src/api/fixtures.ts.
   Every resource's When step stores its response there; the shared generic steps read it. This is
   what lets generic steps be defined ONCE and reused — do NOT add a per-resource state fixture.
@@ -195,8 +202,9 @@ export const DESIGNER_SYSTEM = `${FRAMEWORK_CONTEXT}
 
 Your task: given a user story (with optional acceptance criteria), produce a TEST DESIGN
 - the "what to test" layer that a human Test Lead reviews and curates BEFORE any code is
-written. Do NOT write Gherkin, step definitions, or page objects. Think like an
-experienced tester applying judgement, not an automation script writer.
+written. For each scenario include its Gherkin steps (so the reviewer sees exactly what would
+run), but do NOT write step-definition code or page objects. Think like an experienced tester
+applying judgement, not an automation script writer.
 
 Produce:
 - A short restatement of what the feature must do (so the reviewer can catch
@@ -205,13 +213,17 @@ Produce:
   with a severity and a concrete reason. Think beyond the happy path: state transitions,
   concurrency, session/auth boundaries, data validation, money/quantity math, permissions,
   empty/large/duplicate inputs, error recovery, idempotency.
-- Test scenarios as IDEAS (titles + rationale), not steps. Cover happy path, negative
-  cases, and edge/boundary cases the acceptance criteria only imply. Tag and prioritise
-  each (P0 = must, P1 = should, P2 = nice-to-have) so a human can cut the list. In each
-  rationale, name the KEY OBSERVABLE OUTCOMES the scenario must verify - what the user
-  should see after the action AND what should NOT happen (e.g. error shown + still
-  unauthenticated + no navigation) - so generation has enough to write rich, multi-
-  assertion checks. This is the "what to verify", still not Gherkin steps.
+- Test scenarios. Cover happy path, negative cases, and edge/boundary cases the acceptance
+  criteria only imply. Tag and prioritise each (P0 = must, P1 = should, P2 = nice-to-have) so a
+  human can cut the list. For EACH scenario provide:
+    - a rationale naming the KEY OBSERVABLE OUTCOMES it must verify - what the user should see
+      after the action AND what should NOT happen (e.g. error shown + still unauthenticated + no
+      navigation);
+    - its "gherkin": the concrete Given/When/Then/And steps (no "Scenario:" header), in English,
+      DECLARATIVE (state intent and outcomes - "the visitor searches for {term}", "results are
+      shown" - never click-by-click UI mechanics). A Then should assert real consequences, usually
+      more than one. This is the scenario a reviewer reads and that generation turns into a
+      runnable feature.
 - Open questions: ambiguous or missing requirements that a human must clarify before
   testing makes sense. This is where you challenge the story.
 - Assumptions you had to make to design these tests.
@@ -239,6 +251,10 @@ An approved TEST DESIGN follows. It has been reviewed and curated by a human Tes
 and is the authoritative scope for WHICH scenarios to implement. Rules:
 - Implement exactly the scenarios it lists - do not invent new scenarios and do not drop
   listed ones. The human's curation (including deletions) is intentional.
+- Each scenario already includes its Gherkin steps. Implement THOSE steps (keep the scenario
+  title and the intent/outcomes of each Given/When/Then) so the runnable feature matches what the
+  reviewer approved. You may only adjust wording to reuse an existing step phrasing or bind a real
+  selector - never change what a scenario tests.
 - Honour each scenario's priority and suggested tags when tagging the Gherkin scenarios.
 - Do not block on the design's open questions; implement what is testable now and surface
   any unresolved question or affected scenario in the "notes" field.
@@ -279,10 +295,15 @@ errors and the current source of the existing project files follow. Rules:
 - When a page object is missing a member, return the COMPLETE updated page-object file in
   "pageObjects" (the existing content PLUS the new members merged in), using the existing
   file name so it replaces the file. Do not drop existing members.
+- A MISSING FIXTURE error ("Property 'xxxPage' does not exist on type ... Fixtures") means the
+  page object is not registered. Fix it by returning the FULL updated src/fixtures/index.ts in
+  "supportFiles" (path "src/fixtures/index.ts") — add the import, the PageFixtures type field, and
+  the extend entry \`xxxPage: async ({ page }, use) => use(new XxxPage(page))\`, preserving all
+  existing fixtures.
 - Keep selectors real (from the selector map if provided); otherwise add a clearly marked
   placeholder selector with a TODO.
 - Follow the project conventions and keep the feature/steps consistent with the fixes.
-- Return the FULL corrected artifact set (feature, steps, page objects, notes).`;
+- Return the FULL corrected artifact set (feature, steps, page objects, supportFiles, notes).`;
 
 // Used by the runtime selector self-heal loop: a scenario failed at RUN time because a
 // locator did not resolve (timeout waiting for locator / strict-mode / not visible). A FRESH

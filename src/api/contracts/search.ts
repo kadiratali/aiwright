@@ -1,45 +1,34 @@
+import { z } from 'zod';
+
 /**
- * Hand-rolled contract for /api/search (mirrors docs/api/openapi.json#SearchResponse).
- *
- * validateSearchResponse returns a list of problems instead of throwing, so the caller can
- * decide what to do. This is the seam a future `heal-contract` agent tool hooks into: when
- * the live response drifts from this shape, the issues list is exactly the diff to act on.
- * (Kept dependency-free on purpose; swap for Zod if richer validation is wanted later.)
+ * Contract for /api/search (mirrors docs/api/openapi.json#SearchResponse), as Zod schemas.
+ * One schema is the single source of truth for BOTH the TypeScript type (via z.infer) and the
+ * runtime validation. `validateXxx` keeps returning a list of problems (empty = valid) — the
+ * seam the clients and `heal-contract` already use — now with field-level messages from Zod.
  */
-export interface Product {
-  id: string;
-  name: string;
-  price: number;
-  slug: string;
-  category?: string;
-}
+export const Product = z.object({
+  id: z.string().min(1, 'must be a non-empty string'),
+  name: z.string().min(1, 'must be a non-empty string'),
+  price: z.number().nonnegative('must be a non-negative number'),
+  slug: z.string().min(1, 'must be a non-empty string'),
+  category: z.string().optional()
+});
+export type Product = z.infer<typeof Product>;
 
-export interface SearchResponse {
-  term: string;
-  total: number;
-  items: Product[];
-}
-
-export function validateSearchResponse(body: unknown): string[] {
-  const issues: string[] = [];
-  if (typeof body !== 'object' || body === null) return ['response is not an object'];
-  const r = body as Record<string, unknown>;
-
-  if (typeof r.term !== 'string') issues.push('term must be a string');
-  if (typeof r.total !== 'number') issues.push('total must be a number');
-  if (!Array.isArray(r.items)) {
-    issues.push('items must be an array');
-    return issues;
-  }
-  r.items.forEach((raw, i) => {
-    const it = raw as Record<string, unknown>;
-    if (typeof it?.id !== 'string') issues.push(`items[${i}].id must be a string`);
-    if (typeof it?.name !== 'string') issues.push(`items[${i}].name must be a string`);
-    if (typeof it?.price !== 'number') issues.push(`items[${i}].price must be a number`);
-    if (typeof it?.slug !== 'string') issues.push(`items[${i}].slug must be a string`);
+export const SearchResponse = z
+  .object({
+    term: z.string(),
+    total: z.number().int().nonnegative(),
+    items: z.array(Product)
+  })
+  .refine((r) => r.total === r.items.length, {
+    message: 'total does not match items length',
+    path: ['total']
   });
-  if (typeof r.total === 'number' && Array.isArray(r.items) && r.total !== r.items.length) {
-    issues.push(`total (${r.total}) does not match items length (${r.items.length})`);
-  }
-  return issues;
+export type SearchResponse = z.infer<typeof SearchResponse>;
+
+/** Issues as `path: message` lines (empty = valid). */
+export function validateSearchResponse(body: unknown): string[] {
+  const r = SearchResponse.safeParse(body);
+  return r.success ? [] : r.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
 }

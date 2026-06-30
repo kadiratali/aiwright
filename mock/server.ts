@@ -28,9 +28,55 @@ const CATALOG: Product[] = [
 const trLower = (s: string) => s.toLocaleLowerCase('tr');
 
 const app = express();
+app.use(express.urlencoded({ extended: false }));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ---- A tiny login + protected page, so the auth flow (login -> storageState ->
+// authenticated inspect/run) has a deterministic target to verify against. -----
+const DEMO_USER = process.env.DEMO_USER ?? 'user@test.com';
+const DEMO_PASS = process.env.DEMO_PASS ?? 'secret123';
+const loggedIn = (req: express.Request) => (req.headers.cookie ?? '').includes('nq_auth=1');
+
+app.get('/login', (_req, res) => {
+  res.type('html').send(`<!doctype html><html><head><title>Sign in</title></head><body>
+    <h1>Sign in</h1>
+    <form method="post" action="/login">
+      <input type="email" name="email" placeholder="Email" data-test-id="login-email" />
+      <input type="password" name="password" placeholder="Password" data-test-id="login-password" />
+      <button type="submit" data-test-id="login-submit">Log in</button>
+    </form></body></html>`);
+});
+
+app.post('/login', (req, res) => {
+  if (req.body?.email === DEMO_USER && req.body?.password === DEMO_PASS) {
+    res.setHeader('Set-Cookie', 'nq_auth=1; Path=/; HttpOnly');
+    res.redirect('/dashboard');
+  } else {
+    res.status(401).type('html').send('<h1>Invalid credentials</h1><a href="/login">Back</a>');
+  }
+});
+
+const DASHBOARD_HTML = `<!doctype html><html><head><title>Dashboard</title></head><body>
+  <h1 data-test-id="dashboard-title">Welcome back</h1>
+  <button data-test-id="new-order">New order</button>
+  <a href="/dashboard/orders" data-test-id="orders-link">My orders</a>
+  </body></html>`;
+
+// App root behaves like a real app: logged in -> the dashboard; otherwise -> login.
+app.get('/', (req, res) => {
+  if (loggedIn(req)) res.type('html').send(DASHBOARD_HTML);
+  else res.redirect('/login');
+});
+
+app.get('/dashboard', (req, res) => {
+  if (!loggedIn(req)) {
+    res.redirect('/login');
+    return;
+  }
+  res.type('html').send(DASHBOARD_HTML);
 });
 
 app.get('/api/search', (req, res) => {

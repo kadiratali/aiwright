@@ -63,12 +63,17 @@ function bin(name: string, rootDir: string): string {
   return fs.existsSync(p) ? p : name;
 }
 
-/** Compiles the features (bddgen) and runs the scenarios matching `grep`, returning the tally. */
-export function runFeature(grep: string, rootDir = process.cwd()): RunResult {
+/**
+ * Compiles the features (bddgen) and runs the scenarios matching `grep`, returning the tally.
+ * `extraEnv` is merged into the child process env (e.g. a per-run TARGET_URL) so concurrent runs
+ * don't clobber a shared global.
+ */
+export function runFeature(grep: string, rootDir = process.cwd(), extraEnv: Record<string, string> = {}): RunResult {
   let raw = '';
+  const env = { ...process.env, ...extraEnv };
   const run = (cmd: string, args: string[]) => {
     try {
-      raw += execFileSync(bin(cmd, rootDir), args, { cwd: rootDir, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+      raw += execFileSync(bin(cmd, rootDir), args, { cwd: rootDir, stdio: ['ignore', 'pipe', 'pipe'], env }).toString();
     } catch (e: any) {
       raw += `${e.stdout ?? ''}${e.stderr ?? ''}`;
     }

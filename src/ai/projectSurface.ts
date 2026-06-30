@@ -161,5 +161,12 @@ export function readProjectSurface(root = process.cwd(), mode: 'ui' | 'api' = 'u
   if (pages.length) sections.push(`Page objects (src/pages):\n- ${pages.join('\n- ')}`);
   if (stepList.length) sections.push(`Existing step definitions (REUSE verbatim; do NOT redefine):\n- ${stepList.join('\n- ')}`);
 
+  const fixturesSrc = read(path.join(root, 'src/fixtures/index.ts'));
+  if (fixturesSrc.trim())
+    sections.push(
+      `Current src/fixtures/index.ts (return a FULL merged version in supportFiles if you add a ` +
+        `page object — register the new fixture, PRESERVE the existing entries):\n\n${fixturesSrc}`
+    );
+
   return sections.join('\n\n');
 }

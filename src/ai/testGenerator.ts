@@ -256,6 +256,18 @@ export function writeArtifacts(
   for (const po of artifacts.pageObjects) {
     write('src/pages', po.fileName, po.content);
   }
+  // UI support files (e.g. a merged src/fixtures/index.ts registering a new page-object fixture),
+  // confined to src/ so a generated page object is auto-wired and the suite runs without manual steps.
+  const srcRoot = path.resolve(rootDir, 'src');
+  for (const sf of artifacts.supportFiles ?? []) {
+    const rel = path.normalize(sf.path).replace(/^(\.\.(\/|\\|$))+/, '');
+    const abs = path.resolve(rootDir, rel);
+    if (abs !== srcRoot && !abs.startsWith(srcRoot + path.sep)) {
+      written.push(`${sf.path} (SKIPPED — outside src)`);
+      continue;
+    }
+    writeTo(abs, sf.content);
+  }
 
   return written;
 }

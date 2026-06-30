@@ -17,6 +17,8 @@ export interface ScenarioIdea {
   priority: 'P0' | 'P1' | 'P2';
   rationale: string;
   suggestedTags: string[];
+  /** The scenario as Gherkin steps (Given/When/Then/And) — what would actually run. */
+  gherkin: string;
 }
 
 export interface OutOfScopeItem {
@@ -57,7 +59,7 @@ const DESIGN_SCHEMA = {
     },
     scenarios: {
       type: 'array',
-      description: 'Test ideas (titles + rationale), NOT Gherkin steps',
+      description: 'Test scenarios with their Gherkin steps',
       items: {
         type: 'object',
         properties: {
@@ -68,9 +70,15 @@ const DESIGN_SCHEMA = {
           },
           priority: { type: 'string', enum: ['P0', 'P1', 'P2'] },
           rationale: { type: 'string' },
-          suggestedTags: { type: 'array', items: { type: 'string' } }
+          suggestedTags: { type: 'array', items: { type: 'string' } },
+          gherkin: {
+            type: 'string',
+            description:
+              'This scenario as Gherkin: Given/When/Then/And lines (no "Scenario:" header), English, ' +
+              'declarative (intent + outcomes, not click-by-click). One step per line.'
+          }
         },
-        required: ['title', 'type', 'priority', 'rationale', 'suggestedTags'],
+        required: ['title', 'type', 'priority', 'rationale', 'suggestedTags', 'gherkin'],
         additionalProperties: false
       }
     },
@@ -205,6 +213,9 @@ export function renderDesignMarkdown(design: TestDesign): string {
     const tags = s.suggestedTags.length ? `  \`${s.suggestedTags.join(' ')}\`` : '';
     lines.push(`- **[${s.priority}]** ${s.title} _(${s.type})_${tags}`);
     lines.push(`  - ${s.rationale}`);
+    if (s.gherkin?.trim()) {
+      lines.push('', '  ```gherkin', `  Scenario: ${s.title}`, ...s.gherkin.trim().split('\n').map((l) => `  ${l}`), '  ```');
+    }
   }
   lines.push('');
 

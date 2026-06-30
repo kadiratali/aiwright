@@ -1,19 +1,16 @@
-export interface Product {
-  id: string;
-  name: string;
-  price: number;
-  slug: string;
-}
+import { z } from 'zod';
 
+/** Contract for GET /api/products/{id} — Zod schema is the single source of type + validation. */
+export const Product = z.object({
+  id: z.string().min(1, 'must be a non-empty string'),
+  name: z.string().min(1, 'must be a non-empty string'),
+  price: z.number().nonnegative('must be a non-negative number'),
+  slug: z.string().min(1, 'must be a non-empty string')
+});
+export type Product = z.infer<typeof Product>;
+
+/** Issues as `path: message` lines (empty = valid). */
 export function validateProduct(body: unknown): string[] {
-  const problems: string[] = [];
-  if (typeof body !== 'object' || body === null) {
-    return ['body is not an object'];
-  }
-  const b = body as Record<string, unknown>;
-  if (typeof b.id !== 'string' || b.id.trim() === '') problems.push('id must be a non-empty string');
-  if (typeof b.name !== 'string' || b.name.trim() === '') problems.push('name must be a non-empty string');
-  if (typeof b.price !== 'number' || b.price < 0) problems.push('price must be a non-negative number');
-  if (typeof b.slug !== 'string' || b.slug.trim() === '') problems.push('slug must be a non-empty string');
-  return problems;
+  const r = Product.safeParse(body);
+  return r.success ? [] : r.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
 }
