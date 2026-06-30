@@ -65,9 +65,10 @@ uses (e.g. \`{ homePage }\`) must be a registered fixture. When you add a NEW pa
 the FULL updated src/fixtures/index.ts in "supportFiles" (path: "src/fixtures/index.ts"), merging
 in the new entry — its import AND the PageFixtures type field AND the extend registration, e.g.
 \`homePage: async ({ page }, use) => use(new HomePage(page))\` — while PRESERVING every existing
-fixture. Do NOT just describe this in "notes"; an unregistered fixture is a compile error. Reuse an
-existing page-object fixture when one already fits (see the PROJECT API SURFACE) rather than adding
-a duplicate. If the steps need new test data, include the JSON to add under fixtures/ in "notes".
+fixture AND the existing import line \`import { test as base } from './guard'\` (the test keeps
+extending the guarded base). Do NOT just describe this in "notes"; an unregistered fixture is a
+compile error. Reuse an existing page-object fixture when one already fits (see the PROJECT API
+SURFACE) rather than adding a duplicate. If the steps need new test data, include the JSON to add under fixtures/ in "notes".
 If selectors are unknown, derive them from the story/selector-map, otherwise use clearly marked
 placeholder selectors with TODO comments.
 
@@ -286,7 +287,11 @@ verified against the live DOM. Rules:
 - Only fall back to a clearly-marked placeholder + TODO selector if a needed element is NOT
   present in the map.
 - Put concrete selectors in a src/pages/selectors/*.ts module (matching the project
-  convention) and reference them from the Page Object.`;
+  convention) and reference them from the Page Object.
+- NAVIGATION: the page object's entry method (open/goto) must navigate to the inspected page's
+  ACTUAL path — use the map's "url" (e.g. goto('/ara/?term=...') or the full URL), NOT a bare
+  goto('/'). The page under test may be a deep page, not the site root, and goto('/') would land on
+  the origin root instead.`;
 
 // Used by the self-correction loop: the generated code didn't compile; fix it.
 export const CORRECTION_INSTRUCTION = `

@@ -1,4 +1,4 @@
-import { test as base } from 'playwright-bdd';
+import { test as base } from './guard';
 import { SearchPage } from '../pages/SearchPage';
 
 // Page-object fixtures are wired here as they are generated (e.g. by ai:generate).

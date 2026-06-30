@@ -10,6 +10,8 @@ import { inspectPage, SelectorMap } from '../ai/pageInspector';
 import { authenticate, type AuthOptions, type StorageState } from '../ai/auth';
 import { probeApi, EndpointMap } from '../ai/specProbe';
 import { verifyTypeScript, runFeature } from '../ai/verifier';
+import { extractFailures } from '../ai/failureAnalyzer';
+import { repairSelectors, type SourceFile } from '../ai/selectorHealer';
 import { runAgent } from '../agent/orchestrator';
 import { AgentIO, AgentEvent } from '../agent/io';
 
@@ -267,7 +269,7 @@ app.post(
 // Minimal single-project Playwright config written into each run workspace: chromium only,
 // baseURL pinned to that run's TARGET_URL, Allure results, no webServer/mock, UI steps only.
 const WORKSPACE_CONFIG = `import { defineConfig } from '@playwright/test';
-import { defineBddConfig } from 'playwright-bdd';
+import { defineBddConfig, cucumberReporter } from 'playwright-bdd';
 
 const testDir = defineBddConfig({
   features: 'features/**/*.feature',
@@ -276,7 +278,11 @@ const testDir = defineBddConfig({
 
 export default defineConfig({
   testDir,
-  reporter: [['list'], ['allure-playwright', { resultsDir: 'reports/allure-results' }]],
+  reporter: [
+    ['list'],
+    ['allure-playwright', { resultsDir: 'reports/allure-results' }],
+    cucumberReporter('json', { outputFile: 'reports/cucumber-report.json' })
+  ],
   use: {
     baseURL: process.env.TARGET_URL,
     storageState: process.env.NQ_STORAGE_STATE || undefined,
@@ -309,6 +315,38 @@ function setupWorkspace(rootDir: string): { ws: string; id: string } {
   fs.mkdirSync(path.join(ws, 'features'), { recursive: true });
   fs.writeFileSync(path.join(ws, 'playwright.config.ts'), WORKSPACE_CONFIG);
   return { ws, id };
+}
+
+/** Collects .ts sources under src/pages + src/steps in a workspace (for the selector healer). */
+function collectPagesAndSteps(ws: string): SourceFile[] {
+  const out: SourceFile[] = [];
+  const walk = (rel: string) => {
+    const abs = path.join(ws, rel);
+    if (!fs.existsSync(abs)) return;
+    for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+      const childRel = path.join(rel, e.name);
+      if (e.isDirectory()) walk(childRel);
+      else if (e.name.endsWith('.ts') && !e.name.endsWith('.bak'))
+        out.push({ path: childRel, content: fs.readFileSync(path.join(ws, childRel), 'utf-8') });
+    }
+  };
+  for (const d of ['src/pages', 'src/steps']) walk(d);
+  return out;
+}
+
+/** Writes the healer's corrected files back, confined to src/pages + src/steps. Returns abs paths. */
+function writeRepairedFiles(files: SourceFile[], ws: string): string[] {
+  const written: string[] = [];
+  for (const f of files) {
+    const rel = path.normalize(f.path).replace(/^(\.\.(\/|\\|$))+/, '');
+    const abs = path.resolve(ws, rel);
+    const allowed = ['src/pages', 'src/steps'].some((d) => abs.startsWith(path.resolve(ws, d) + path.sep));
+    if (!allowed) continue;
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, f.content);
+    written.push(abs);
+  }
+  return written;
 }
 
 /** Renders the Allure HTML report from <ws>/reports/allure-results into outDir. */
@@ -392,18 +430,51 @@ async function runSuiteJob(
     }
 
     const title = (artifacts.featureContent.match(/Feature:\s*(.+)/) ?? [])[1]?.trim() || '';
+    const runEnv = { TARGET_URL: siteUrl, BASE_URL: siteUrl, ...(stateFile ? { NQ_STORAGE_STATE: stateFile } : {}) };
     emitRun(job, { type: 'stage', stage: 'run', label: `Running “${title}” against ${siteUrl}…` });
-    const run = runFeature(title, ws, {
-      TARGET_URL: siteUrl,
-      BASE_URL: siteUrl,
-      ...(stateFile ? { NQ_STORAGE_STATE: stateFile } : {})
-    });
+    let run = runFeature(title, ws, runEnv);
     emitRun(job, {
       type: 'stage',
       stage: 'run',
       done: true,
       label: run.ok ? `${run.passed} passed` : `${run.passed} passed · ${run.failed} failed`
     });
+
+    // Self-heal loop: a runtime LOCATOR failure is a stale/wrong selector, not an app bug. Re-inspect
+    // the live page, patch the failing selectors with real ones, and re-run — bounded to 2 rounds.
+    let healRounds = 0;
+    while (!run.ok && run.failed > 0 && healRounds < 2) {
+      const failures = extractFailures(path.join(ws, 'reports', 'cucumber-report.json')).filter((f) =>
+        /timeout.*waiting for|strict mode|not visible|resolved to \d|locator\(/i.test(f.errorMessage)
+      );
+      if (failures.length === 0) break; // not a selector problem — leave it for the report
+      healRounds++;
+      emitRun(job, { type: 'stage', stage: 'heal-selectors', label: `Selector self-heal (round ${healRounds}) — re-inspecting & patching…` });
+      const freshMap = JSON.stringify(await inspectPage(siteUrl, { storageState }), null, 2);
+      const repair = await repairSelectors(
+        storyText,
+        failures.map((f) => ({ scenario: f.scenario, failedStep: f.failedStep, errorMessage: f.errorMessage })),
+        freshMap,
+        collectPagesAndSteps(ws)
+      );
+      const patched = writeRepairedFiles(repair.files, ws);
+      if (patched.length === 0) {
+        emitRun(job, { type: 'stage', stage: 'heal-selectors', done: true, label: `Round ${healRounds}: no in-scope selector to patch` });
+        break;
+      }
+      const after = verifyTypeScript(patched.filter((p) => p.endsWith('.ts')), ws);
+      if (!after.ok) {
+        emitRun(job, { type: 'stage', stage: 'heal-selectors', done: true, label: `Round ${healRounds}: patch did not type-check, stopping` });
+        break;
+      }
+      run = runFeature(title, ws, runEnv);
+      emitRun(job, {
+        type: 'stage',
+        stage: 'heal-selectors',
+        done: true,
+        label: `Round ${healRounds}: ${run.ok ? 'green ✓' : `${run.passed} passed · ${run.failed} failed`}`
+      });
+    }
 
     emitRun(job, { type: 'stage', stage: 'report', label: 'Rendering the Allure report…' });
     const reported = buildAllureReport(ws, path.join(RUN_REPORTS_DIR, id));
@@ -415,6 +486,7 @@ async function runSuiteJob(
       passed: run.passed,
       failed: run.failed,
       rounds,
+      healRounds,
       reportUrl: reported ? `/report/${id}/index.html` : null
     });
   } finally {

@@ -506,7 +506,9 @@
             const ok = e.ok;
             h = '<div class="result ' + (ok ? 'ok' : 'bad') + '"><div class="head">' +
               (ok ? '✓ ' + e.passed + ' scenario(s) passed' : '✗ ' + e.passed + ' passed · ' + e.failed + ' failed') +
-              '<span class="badge2">UI lane</span>' + (e.rounds ? '<span class="badge2">' + e.rounds + ' heal round(s)</span>' : '') + '</div>' +
+              '<span class="badge2">UI lane</span>' +
+              (e.rounds ? '<span class="badge2">' + e.rounds + ' compile-fix</span>' : '') +
+              (e.healRounds ? '<span class="badge2">' + e.healRounds + ' selector-heal</span>' : '') + '</div>' +
               (e.reportUrl
                 ? '<div style="margin-top:14px"><a class="btn btn-primary" href="' + e.reportUrl + '" target="_blank" rel="noopener">Open Allure report ↗</a></div>'
                 : '<div class="files" style="margin-top:10px">Report could not be rendered (is the Allure CLI / Java available?).</div>') +
