@@ -110,9 +110,11 @@ driven by Playwright's APIRequestContext. There is NO browser, NO page object, N
   which exposes protected get(path, params?) and post(path, data?) over APIRequestContext. Name a
   client method after the operation (search/fetch/create) — NOT get/post (those are the protected
   base methods; reusing the name shadows them).
-- Response contracts live in src/api/contracts/*.ts as dependency-free validators: an exported
-  interface for the shape PLUS a validateXxx(body): string[] returning a list of problems (empty =
-  valid). A client validates a 200 body and THROWS "Contract violation: ..." when it drifts.
+- Response contracts live in src/api/contracts/*.ts as Zod schemas: \`export const Foo = z.object({...})\`
+  is the single source of truth for BOTH the type (\`export type Foo = z.infer<typeof Foo>\`) and the
+  runtime validation, PLUS a \`validateXxx(body): string[]\` that safeParses and maps issues to
+  \`path: message\` lines (empty = valid). A client validates a 200 body and THROWS
+  "Contract violation: ..." when it drifts. Import \`{ z } from 'zod'\`.
 - There is ONE shared state fixture, apiState ({ last?: { status, body } }), in src/api/fixtures.ts.
   Every resource's When step stores its response there; the shared generic steps read it. This is
   what lets generic steps be defined ONCE and reused — do NOT add a per-resource state fixture.
